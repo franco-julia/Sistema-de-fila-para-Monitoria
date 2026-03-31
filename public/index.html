@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Versa Monitoria | Aluno</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+
+    <h1>VERSA MONITORIA</h1>
+
+    <div class="monitoria-grid" id="grid-monitorias">
+    </div>
+
+    <div class="overlay" id="overlay-registro">
+        <div class="modal">
+            <button class="close-btn" onclick="fecharRegistro()">×</button>
+            <div style="text-align: left; margin-bottom: 25px; border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                <span id="reg-monitor-nome" class="monitor-nome-modal">Monitor</span>
+                <span id="reg-materia-nome" class="materia-subtitulo-modal">Disciplina</span>
+            </div>
+
+            <label>WhatsApp</label>
+            <input type="tel" id="tel-aluno" placeholder="(00) 00000-0000">
+
+            <label id="label-materia" style="display:none;">Escolha a matéria</label>
+            <select id="select-materia" style="display:none;" onchange="selecionarMateriaAluno(this.value)">
+                <option value="">Selecione a matéria...</option>
+            </select>
+
+            <label>Escolha até 3 módulos</label>
+            <div id="tags-container" class="tags-selecionadas"></div>
+            <select id="select-modulos" onchange="addModulo(this.value)">
+                <option value="">Selecione um assunto...</option>
+            </select>
+
+            <button class="btn-confirm" onclick="confirmarEntrada()">ENTRAR NA FILA AGORA</button>
+        </div>
+    </div>
+
+    <div class="overlay" id="overlay-espera" style="display: none;">
+        <div class="modal" id="painel-espera" style="display: block;">
+            <div style="margin-bottom: 25px;">
+                <span id="view-monitor-wait" class="monitor-nome-espera">Monitor</span>
+                <span id="view-materia-wait" class="materia-subtitulo-espera">Disciplina</span>
+            </div>
+
+            <div class="stat-label">Sua posição atual</div>
+            <div class="posicao-v" id="view-posicao">--</div>
+            <p id="view-status-msg" style="font-weight: 600;"></p>
+
+            <div class="cronometros-espera">
+                <div class="cronometro-box" id="box-espera">
+                    <span class="cronometro-label">Tempo de espera</span>
+                    <span class="cronometro-valor" id="view-tempo-espera">00:00</span>
+                </div>
+                <div class="cronometro-box destaque" id="box-chegada" style="display:none;">
+                    <span class="cronometro-label">Tempo para chegar</span>
+                    <span class="cronometro-valor" id="view-chegada-countdown">02:00</span>
+                </div>
+                <div class="cronometro-box" id="box-atendimento" style="display:none;">
+                    <span class="cronometro-label">Tempo de atendimento</span>
+                    <span class="cronometro-valor" id="view-atendimento-tempo">00:00</span>
+                </div>
+            </div>
+
+            <div id="view-modulos-list" style="font-size: 0.85rem; color: var(--text-main); background: rgba(0,0,0,0.1); padding: 10px; border-radius: 8px;">
+                Dúvidas selecionadas...
+            </div>
+
+            <button onclick="desistirFila()" class="btn-cancelar">Sair da Fila</button>
+        </div>
+    </div>
+
+    <div class="overlay" id="overlay-feedback" style="display: none;">
+        <div class="modal" style="text-align: center;">
+            <h2 style="color: var(--accent); margin-bottom: 5px;">Atendimento Finalizado!</h2>
+            <p style="color: #ffffff; font-size: 0.9rem; margin-bottom: 20px;">Como foi sua experiência?</p>
+            
+            <div class="nota-escala">
+                <button onclick="selecionarNota(1, this)" class="btn-nota n1">1</button>
+                <button onclick="selecionarNota(2, this)" class="btn-nota n2">2</button>
+                <button onclick="selecionarNota(3, this)" class="btn-nota n3">3</button>
+                <button onclick="selecionarNota(4, this)" class="btn-nota n4">4</button>
+                <button onclick="selecionarNota(5, this)" class="btn-nota n5">5</button>
+            </div>
+
+            <textarea id="comentario-feedback" placeholder="Escreva um comentário opcional..."></textarea>
+            
+            <button class="btn-confirm" style="margin-top: 20px;" onclick="enviarFB()">ENVIAR AVALIAÇÃO</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io('http://localhost:5005', {
+            auth: {
+                institutionId: dadosLogin.institutionId,
+                userId: dadosLogin.monitorId,
+                role: 'MONITOR',
+                monitoriaId: monitoriaIdSelecionada
+            }
+        });
+        let minhaMatricula = "";
+        let minhaMateria = "";
+        let monitorSelecionadoUsuario = "";
+        let notaGlobal = 0;
+        let modulosSelecionados = [];
+        let materiasMonitorSelecionado = [];
+        let ultimoEstadoGeral = null;
+        let serverOffsetMs = 0;
+        let configTempos = {
+            tempoChegadaMs: 2 * 60 * 1000,
+            tempoAtendimentoMs: 15 * 60 * 1000,
+            tempoExtraMs: 5 * 60 * 1000
+        };
+
+        const aulas = {
+            "Matemática": {
+                "A": ["Transf. Geométricas", "Ângulos e Paralelismo", "Triângulos", "Quadriláteros", "Polígonos", "Tales e Semelhança", "Métricas Triâng. Ret.", "Circunferência", "Áreas Planas", "Trigo no Triâng. Ret.", "Trigo no Triâng. Qq", "Ciclo Trigonométrico", "Redução ao 1º quadrante", "Funções Trigonométricas", "Equações Trigonométricas", "Adição de Arcos", "Prismas", "Cilindros", "Pirâmides", "Reta I", "Reta II", "Circunferência II", "Interseções Analíticas", "Cônicas"],
+                "B": ["Conjuntos", "Conjuntos Numéricos", "Intervalos", "Funções Intro", "Função 1º Grau", "Função 2º Grau", "Inequações", "Vértice Parábola", "Exponencial", "Logaritmos", "Prop. Logaritmos", "Função Log", "Matrizes", "Determinantes", "Sistemas Lineares", "Análise Combinatória", "Arranjo/Permutação", "Combinação", "Probabilidade I", "Probabilidade II", "Estatística I", "Estatística II", "Polinômios", "Equações Polinomiais"],
+                "C": ["Potenciação", "Radiciação", "Produtos Notáveis", "Fatoração", "Razão e Proporção", "Regra de Três", "Porcentagem", "Aumentos/Descontos", "Juros Simples", "Juros Compostos", "P.A.", "P.G.", "P.G. Infinita", "Geometria Analítica", "Números Complexos", "Cones", "Esferas", "Inscrição Sólidos", "Médias", "Gráficos", "Lógica", "Divisibilidade", "MDC/MMC", "Expressões Numeradas"]
+            },
+            "Física": {
+                "A": ["Cinemática Escalar", "Gráficos MU", "MUV", "Gráficos MUV", "Lançamentos Verticais", "Lançamento Oblíquo", "MCU", "Transmissão MCU", "Leis de Newton", "Atrito", "Plano Inclinado", "R. Centrípeta", "Trabalho e Potência", "Energia Mecânica", "Conservação Energia", "Impulso/Movimento", "Colisões", "Estática Ponto", "Estática Corpo", "Gravitação", "MHS", "Ondas e Cordas", "Tubos Sonoros", "Doppler"],
+                "B": ["Vetores", "Cinemática Vetorial", "Composição Mov.", "Reflexão Luz", "Espelhos Planos", "Espelhos Esféricos", "Refração Luz", "Lentes", "Óptica Visão", "Termometria", "Calorimetria", "Mudanças Estado", "Transmissão Calor", "Gases Perfeitos", "Termodinâmica I", "Termodinâmica II", "Dilatação", "Pêndulo", "Acústica", "Ondas II", "Física Moderna", "Efeito Fotoelétrico", "Física Nuclear", "Reações Nucleares"],
+                "C": ["Hidrostática Intro", "Stevin", "Pascal", "Hidrodinâmica", "Cargas Elétricas", "Lei de Coulomb", "Campo Elétrico", "Potencial Elétrico", "Condutores", "Corrente Elétrica", "Resistores/Ohm", "Assoc. Resistores", "Instrumentos", "Circuitos", "Geradores/Receptores", "Kirchhoff", "Capacitores", "Magnetismo", "Oersted", "Força Magnética", "Indução", "Faraday", "Transformadores", "Corrente Alternada"]
+            },
+            "Química": {
+                "A": ["Intro Química", "Estados Físicos", "Curvas Aquecimento", "Separação Misturas", "Sistemas", "Atomística", "Radioatividade", "Cinética", "Equilíbrio", "Eq. Iônico", "Soluções", "Solubilidade", "Coligativas", "Termoquímica", "Eletroquímica I", "Pilha", "Eletrólise", "Gases", "Rel. Massa", "Estequiometria I", "Estequiometria II", "Ambiental", "Titulação", "Bioquímica"],
+                "B": ["Corpúsculos", "Rutherford", "Bohr", "Distribuição Eletr.", "Tabela Periódica", "Prop. Periódicas", "Lig. Iônicas", "Lig. Covalentes", "Geometria Mol.", "Polaridade", "Intermoleculares", "Ácidos", "Bases", "Sais", "Óxidos", "Dupla Troca", "Oxirredução", "Cálculo Esteq.", "Pureza/Rendimento", "Cinética II", "Equilíbrio III", "pH e pOH", "Hidrólise", "Solubilidade Kps"],
+                "C": ["Atômico-molecular", "Fórmulas", "Leis Ponderais", "Mol e Avogadro", "Mols II", "Orgânica Intro", "Cadeias", "Hidrocarbonetos", "Álcoois/Fenóis", "Éteres/Cetonas", "Aldeídos", "Ácidos Carbox.", "Ésteres", "Aminas/Amidas", "Isomeria Plana", "Isomeria Espacial", "Isomeria Óptica", "Substituição", "Adição", "Eliminação", "Polímeros", "Oxidação Álcool", "Oxidação Hidroc.", "Redução"]
+            },
+            "Biologia": {
+                "A": ["Química da Vida", "Glicídios", "Lipídeos", "Proteínas/Enzimas", "Replicação DNA", "Mutações", "Transcrição Gênica", "Biotecnologia", "Célula Pro/Eucariótica", "Membrana Plasmática", "Organelas", "Respiração Celular", "Fermentação", "Fotossíntese", "Vírus", "Monera", "Protista", "Fungi", "Pirâmides Ecológicas", "Interações", "Ciclos Biogeoquímicos", "Biomas", "Impactos Ambientais"],
+                "B": ["Ciclo Celular", "Mitose/Meiose", "Gametogênese", "1ª Lei de Mendel", "Alelos", "Sistemas ABO/Rh", "2ª Lei de Mendel", "Herança Sexo", "Interação Gênica", "Linkage", "Genética Populações", "Embriologia", "Gravidez", "Sist. Reprodutor", "Plantas Avasculares", "Gimnospermas", "Angiospermas", "Fisiologia Vegetal", "Hormônios Vegetais"],
+                "C": ["Taxonomia", "Poríferos/Celenterados", "Platelmintos", "Nematelmintos", "Moluscos/Anelídeos", "Artrópodes", "Equinodermas", "Peixes", "Anfíbios", "Répteis/Aves", "Mamíferos", "Histologia", "Imunologia", "Sist. Digestório", "Sist. Respiratório", "Sist. Circulatório", "Sist. Excretor", "Sist. Endócrino", "Sist. Nervoso", "Evolução"]
+            }
+        };
+
+        function preencherModulosPorMateria(materia) {
+            const select = document.getElementById('select-modulos');
+            select.innerHTML = '<option value="">Selecione um assunto...</option>';
+
+            modulosSelecionados = [];
+            renderTags();
+
+            if (!aulas[materia]) return;
+
+            ["A", "B", "C"].forEach(frente => {
+                const group = document.createElement("optgroup");
+                group.label = "Frente " + frente;
+
+                aulas[materia][frente].forEach((modulo, i) => {
+                    const opt = document.createElement("option");
+                    const cod = frente + (i + 1).toString().padStart(2, '0');
+                    opt.value = `${cod} - ${modulo}`;
+                    opt.textContent = `${cod} - ${modulo}`;
+                    group.appendChild(opt);
+                });
+
+                select.appendChild(group);
+            });
+        }
+
+        function addModulo(valor) {
+            if (!valor) return;
+            if (modulosSelecionados.includes(valor)) return;
+            if (modulosSelecionados.length >= 3) {
+                alert("Você pode selecionar no máximo 3 módulos.");
+                document.getElementById('select-modulos').value = "";
+                return;
+            }
+
+            modulosSelecionados.push(valor);
+            renderTags();
+            document.getElementById('select-modulos').value = "";
+        }
+
+        function removerModulo(modulo) {
+            modulosSelecionados = modulosSelecionados.filter(m => m !== modulo);
+            renderTags();
+        }
+
+        function renderTags() {
+            const container = document.getElementById('tags-container');
+            container.innerHTML = modulosSelecionados.map(modulo => `
+                <div class="modulo-tag">
+                    ${modulo}
+                    <span onclick="removerModulo('${modulo.replace(/'/g, "\\'")}')">×</span>
+                </div>
+            `).join('');
+        }
+
+        function formatarTelefone(numero) {
+            let limpo = numero.replace(/\D/g, '');
+            if (limpo.length === 11 || limpo.length === 10) limpo = '55' + limpo;
+            return limpo;
+        }
+
+        function formatarTempoMedio(minutos) {
+            if (!minutos || minutos <= 0) return "---";
+            if (minutos < 60) return `${minutos} min`;
+            const h = Math.floor(minutos / 60);
+            const m = minutos % 60;
+            return m > 0 ? `${h}h ${m}min` : `${h}h`;
+        }
+
+        function obterStatusMonitor(info) {
+            if (info.status === "em pausa") {
+                return { texto: "Em pausa", classe: "dot-pausa" };
+            }
+            if (info.atual) {
+                return {
+                    texto: info.atual.status === 'em_atendimento' ? "Em atendimento" : "Chamando aluno",
+                    classe: "dot-atendimento"
+                };
+            }
+            return { texto: "Livre", classe: "dot-online" };
+        }
+
+        function atualizarOffsetServidor(serverTime) {
+            if (typeof serverTime === 'number') {
+                serverOffsetMs = Date.now() - serverTime;
+            }
+        }
+
+        function agoraServidor() {
+            return Date.now() - serverOffsetMs;
+        }
+
+        function formatarMMSS(ms) {
+            const totalSeg = Math.max(0, Math.floor(ms / 1000));
+            const min = Math.floor(totalSeg / 60).toString().padStart(2, '0');
+            const seg = (totalSeg % 60).toString().padStart(2, '0');
+            return `${min}:${seg}`;
+        }
+
+        function formatarHHMMSS(ms) {
+            const totalSeg = Math.max(0, Math.floor(ms / 1000));
+            const h = Math.floor(totalSeg / 3600);
+            const m = Math.floor((totalSeg % 3600) / 60).toString().padStart(2, '0');
+            const s = (totalSeg % 60).toString().padStart(2, '0');
+            return h > 0 ? `${String(h).padStart(2, '0')}:${m}:${s}` : `${m}:${s}`;
+        }
+
+        function atualizarPainelEsperaTempo() {
+            if (!ultimoEstadoGeral || !monitorSelecionadoUsuario || !minhaMatricula) return;
+
+            const monitor = (ultimoEstadoGeral.dados || {})[monitorSelecionadoUsuario];
+            if (!monitor) return;
+
+            const fila = monitor.fila || [];
+            const alunoFila = fila.find(a => a.telefone === minhaMatricula);
+            const alunoAtual = monitor.atual && monitor.atual.telefone === minhaMatricula ? monitor.atual : null;
+            const agora = agoraServidor();
+
+            const boxEspera = document.getElementById('box-espera');
+            const boxChegada = document.getElementById('box-chegada');
+            const boxAtendimento = document.getElementById('box-atendimento');
+            const tempoEspera = document.getElementById('view-tempo-espera');
+            const tempoChegada = document.getElementById('view-chegada-countdown');
+            const tempoAtendimento = document.getElementById('view-atendimento-tempo');
+            const statusMsg = document.getElementById('view-status-msg');
+            const posicao = document.getElementById('view-posicao');
+
+            boxEspera.style.display = 'none';
+            boxChegada.style.display = 'none';
+            boxAtendimento.style.display = 'none';
+
+            if (alunoFila) {
+                const esperaFila = alunoFila.inicioFila ? (agora - alunoFila.inicioFila) : 0;
+                tempoEspera.innerText = formatarHHMMSS(esperaFila);
+                boxEspera.style.display = 'flex';
+
+                const index = fila.findIndex(a => a.telefone === minhaMatricula);
+                posicao.innerText = index !== -1 ? `${index + 1}º` : '--';
+                statusMsg.innerText = 'Você está aguardando na fila.';
+                return;
+            }
+
+            if (alunoAtual) {
+                if (alunoAtual.status === 'chamado') {
+                    boxChegada.style.display = 'flex';
+
+                    const restanteChegada = alunoAtual.chegadaLimiteEm
+                        ? (alunoAtual.chegadaLimiteEm - agora)
+                        : 0;
+
+                    tempoChegada.innerText = formatarMMSS(restanteChegada);
+                    posicao.innerText = 'Sua vez!';
+                    statusMsg.innerText = restanteChegada > 0
+                        ? 'O monitor te chamou. Vá para a sala em até 2 minutos.'
+                        : 'Tempo esgotado. Você será recolocado no fim da fila.';
+                    return;
+                }
+
+                if (alunoAtual.status === 'em_atendimento') {
+                    boxAtendimento.style.display = 'flex';
+
+                    const decorridoAtendimento = alunoAtual.atendimentoInicioEm
+                        ? (agora - alunoAtual.atendimentoInicioEm)
+                        : 0;
+
+                    tempoAtendimento.innerText = formatarHHMMSS(decorridoAtendimento);
+                    posicao.innerText = 'Em atendimento';
+                    statusMsg.innerText = 'Seu atendimento começou.';
+                    return;
+                }
+            }
+
+            posicao.innerText = '--';
+            tempoEspera.innerText = '00:00';
+            tempoChegada.innerText = '00:00';
+            tempoAtendimento.innerText = '00:00';
+            statusMsg.innerText = '';
+        }
+
+        socket.on('atualizarGeral', (data) => {
+            ultimoEstadoGeral = data;
+            atualizarOffsetServidor(data.serverTime);
+            configTempos = data.config || configTempos;
+            const grid = document.getElementById('grid-monitorias');
+            const monitoresAtivos = Object.entries(data.dados || {});
+            const historico = data.historico || [];
+
+            if (monitoresAtivos.length === 0) {
+                grid.innerHTML = `
+                    <p style="color: var(--accent); grid-column: 1/-1; text-align: center;">
+                        Nenhum monitor online no momento.
+                    </p>
+                `;
+                return;
+            }
+
+            grid.innerHTML = monitoresAtivos.map(([usuarioID, info]) => {
+                const statusMonitor = obterStatusMonitor(info);
+
+                const historicoMonitor = historico.filter(h => h.atendidoPor === info.nome);
+                const totalDuracao = historicoMonitor.reduce((acc, item) => acc + (item.duracao || 0), 0);
+                const media = historicoMonitor.length > 0 ? Math.round(totalDuracao / historicoMonitor.length): 0
+                const materiasTexto = (info.materias || []).join(', ');
+                const podeClicar = info.status !== "em pausa";
+
+                return `
+                    <div class="card ${info.status === 'em pausa' ? 'pausa' : ''}"
+                        onclick="${podeClicar ? `abrirRegistro('${usuarioID}', '${info.nome}', '${materiasTexto}')` : ''}">
+                        
+                        <div class="status-top">
+                            <span class="status-dot ${statusMonitor.classe} ${statusMonitor.classe === 'dot-atendimento' ? 'pulse-dot' : ''}"></span>
+                        </div>
+
+                        <div class="card-header">
+                            <span class="monitor-nome">${info.nome}</span>
+                            <h3 class="materia-subtitulo-modal">
+                                ${(info.materias && info.materias.length > 1)
+                                    ? info.materias.join(' • ')
+                                    : ((info.materias && info.materias[0]) ? info.materias[0] : 'Monitoria')}
+                            </h3>
+                        </div>
+
+                        <div class="divider"></div>
+
+                        <div class="footer-content">
+                            <span class="fila-texto">Na fila: ${(info.fila || []).length}</span>
+                            <span class="tempo-texto">${formatarTempoMedio(media)}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            console.log('DADOS RECEBIDOS NO ALUNO:', data);
+            atualizarPainelEsperaTempo();
+        });
+
+        setInterval(atualizarPainelEsperaTempo, 1000);
+
+        function abrirRegistro(usuario, nome, materiasStr) {
+            monitorSelecionadoUsuario = usuario;
+
+            document.getElementById('reg-monitor-nome').innerText = nome;
+            document.getElementById('view-monitor-wait').innerText = nome;
+
+            const selectMateria = document.getElementById('select-materia');
+            const labelMateria = document.getElementById('label-materia');
+            const selectModulos = document.getElementById('select-modulos');
+
+            materiasMonitorSelecionado = (materiasStr || "")
+                .split(",")
+                .map(m => m.trim())
+                .filter(Boolean);
+
+            document.getElementById('reg-materia-nome').innerText = materiasStr || "Disciplina";
+            document.getElementById('view-materia-wait').innerText = "Disciplina";
+
+            selectMateria.innerHTML = '<option value="">Selecione a matéria...</option>';
+            selectModulos.innerHTML = '<option value="">Selecione um assunto...</option>';
+            modulosSelecionados = [];
+            renderTags();
+            minhaMateria = "";
+
+            if (materiasMonitorSelecionado.length > 1) {
+                labelMateria.style.display = 'block';
+                selectMateria.style.display = 'block';
+
+                materiasMonitorSelecionado.forEach(materia => {
+                    const opt = document.createElement('option');
+                    opt.value = materia;
+                    opt.textContent = materia;
+                    selectMateria.appendChild(opt);
+                });
+            } else {
+                labelMateria.style.display = 'none';
+                selectMateria.style.display = 'none';
+
+                minhaMateria = materiasMonitorSelecionado[0] || "";
+                document.getElementById('view-materia-wait').innerText = minhaMateria || "Disciplina";
+                preencherModulosPorMateria(minhaMateria);
+            }
+
+            document.getElementById('overlay-registro').style.display = 'flex';
+        }
+
+        function fecharRegistro() {
+            document.getElementById('overlay-registro').style.display = 'none';
+            document.getElementById('tel-aluno').value = "";
+            document.getElementById('select-modulos').innerHTML = '<option value="">Selecione um assunto...</option>';
+            modulosSelecionados = [];
+            renderTags();
+        }
+
+        function confirmarEntrada() {
+            const tel = document.getElementById('tel-aluno').value.trim();
+
+            if (!tel || tel.replace(/\D/g, '').length < 10) {
+                alert("Insira um WhatsApp válido.");
+                return;
+            }
+
+            if (!monitorSelecionadoUsuario) {
+                alert("Nenhum monitor selecionado.");
+                return;
+            }
+
+            if (!minhaMateria) {
+                alert("Selecione a matéria desejada.");
+                return;
+            }
+
+            minhaMatricula = tel;
+
+            socket.emit('entrarNaFila', {
+                monitorUsuario: monitorSelecionadoUsuario,
+                telefone: tel,
+                nome: tel,
+                materia: minhaMateria,
+                modulos: modulosSelecionados
+            });
+
+            document.getElementById('view-modulos-list').innerHTML =
+                modulosSelecionados.length > 0
+                    ? modulosSelecionados.map(m => `<span class="tag-mod">${m}</span>`).join('')
+                    : "Nenhum módulo selecionado";
+
+            document.getElementById('overlay-registro').style.display = 'none';
+            document.getElementById('overlay-espera').style.display = 'flex';
+        }
+
+        function selecionarMateriaAluno(materia) {
+            minhaMateria = materia;
+            document.getElementById('view-materia-wait').innerText = materia || "Disciplina";
+            preencherModulosPorMateria(materia);
+        }
+
+        function desistirFila() {
+            if (!minhaMatricula || !monitorSelecionadoUsuario) return;
+
+            if (confirm("Deseja realmente sair da fila?")) {
+                socket.emit('cancelarSolicitacao', {
+                    telefone: minhaMatricula,
+                    monitorUsuario: monitorSelecionadoUsuario
+                });
+                location.reload();
+            }
+        }
+
+        socket.on('alunoChamado', (dados) => {
+            if (dados.telefone === minhaMatricula) {
+                document.getElementById('overlay-espera').style.display = 'flex';
+                document.getElementById('view-status-msg').innerText = 'Você foi chamado. Vá para a sala em até 2 minutos.';
+                atualizarPainelEsperaTempo();
+            }
+        });
+
+        socket.on('chegadaConfirmadaAluno', (dados) => {
+            if (dados.telefone === minhaMatricula) {
+                document.getElementById('view-status-msg').innerText = 'Chegada confirmada. Atendimento em andamento.';
+                atualizarPainelEsperaTempo();
+            }
+        });
+
+        socket.on('alunoNaoCompareceu', (dados) => {
+            if (dados.telefone === minhaMatricula) {
+                document.getElementById('view-status-msg').innerText = 'Você não chegou a tempo e voltou para o fim da fila.';
+                atualizarPainelEsperaTempo();
+            }
+        });
+
+        socket.on('finalizarAtendimentoAluno', (dados) => {
+            if (dados.telefone === minhaMatricula) {
+                document.getElementById('overlay-espera').style.display = 'none';
+                document.getElementById('overlay-feedback').style.display = 'flex';
+            }
+        });
+
+        function selecionarNota(valor, elemento) {
+            notaGlobal = valor;
+            document.querySelectorAll('.btn-nota').forEach(btn => btn.classList.remove('selected'));
+            elemento.classList.add('selected');
+        }
+
+        function enviarFB() {
+            if (notaGlobal === 0) {
+                alert("Por favor, escolha uma nota.");
+                return;
+            }
+
+            const comentario = document.getElementById('comentario-feedback').value.trim();
+
+            socket.emit('enviarFeedback', {
+                telefone: minhaMatricula,
+                materia: minhaMateria,
+                nota: notaGlobal,
+                comentario
+            });
+
+            alert("Obrigado pela avaliação.");
+            location.reload();
+        }
+    </script>
+</body>
+</html>

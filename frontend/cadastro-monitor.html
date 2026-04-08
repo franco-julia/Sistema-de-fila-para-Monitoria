@@ -58,7 +58,7 @@
         const monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;
         const monitoriaId = params.get('monitoria') || localStorage.getItem('monitoria_id') || null;
         const role = localStorage.getItem('user_role') || 'MONITOR';
-        const API_BASE = "https://sistema-de-fila-para-monitoria-production.up.railway.app";
+        const API_BASE = 'https://sistema-de-fila-para-monitoria-production.up.railway.app';
 
         const socket = io(API_BASE, {
             auth: {

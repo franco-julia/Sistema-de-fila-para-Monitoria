@@ -53,44 +53,73 @@
     </div>
 
     <script>
+        const params = new URLSearchParams(window.location.search);
+        const institutionId = params.get('institution') || localStorage.getItem('institution_id') || null;
+        const monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;
+        const monitoriaId = params.get('monitoria') || localStorage.getItem('monitoria_id') || null;
+        const role = localStorage.getItem('user_role') || 'MONITOR';
+
         const socket = io('http://localhost:5005', {
             auth: {
-                institutionId: dadosLogin.institutionId,
-                userId: dadosLogin.monitorId,
-                role: 'MONITOR',
-                monitoriaId: monitoriaIdSelecionada
+                institutionId,
+                userId: monitorId,
+                role,
+                monitoriaId
             }
         });
 
-        function cadastrar() {
+        async function cadastrar() {
             const materiasSelecionadas = Array.from(
                 document.getElementById('reg-mat').selectedOptions
             ).map(option => option.value);
 
-            const novo = {
-                nome: document.getElementById('reg-nome').value.trim(),
-                usuario: document.getElementById('reg-user').value.trim(),
-                senha: document.getElementById('reg-pass').value.trim(),
-                materia: materiasSelecionadas,
-                horarios: "Horários"
-            };
+            const nome = document.getElementById('reg-nome').value.trim();
+            const usuario = document.getElementById('reg-user').value.trim();
+            const senha = document.getElementById('reg-pass').value.trim();
 
-            if (!novo.nome || !novo.usuario || !novo.senha) {
-                return alert("Por favor, preencha os campos obrigatórios (Nome, Usuário e Senha).");
+            if (!nome || !usuario || !senha) {
+                return alert("Preencha nome, login e senha.");
             }
 
             if (materiasSelecionadas.length === 0) {
                 return alert("Selecione pelo menos uma matéria.");
             }
 
-            socket.emit('addMonitor', novo);
+            if (!institutionId) {
+                return alert("institutionId não encontrado.");
+            }
 
-            document.getElementById('reg-nome').value = "";
-            document.getElementById('reg-user').value = "";
-            document.getElementById('reg-pass').value = "";
-            document.getElementById('reg-mat').selectedIndex = -1;
+            try {
+                const resp = await fetch('http://localhost:5005/monitors', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        institutionId,
+                        nome,
+                        usuario,
+                        senha,
+                        materias: materiasSelecionadas
+                    })
+                });
 
-            alert("Monitor " + novo.nome + " cadastrado com sucesso!");
+                const data = await resp.json();
+
+                if (!resp.ok || !data.ok) {
+                    throw new Error(data.error || 'Erro ao cadastrar monitor.');
+                }
+
+                document.getElementById('reg-nome').value = "";
+                document.getElementById('reg-user').value = "";
+                document.getElementById('reg-pass').value = "";
+                Array.from(document.getElementById('reg-mat').options).forEach(o => o.selected = false);
+
+                alert(`Monitor ${nome} cadastrado com sucesso.`);
+                socket.emit('fila:atualizar');
+            } catch (err) {
+                alert(err.message);
+            }
         }
 
         socket.on('atualizarGeral', (data) => {

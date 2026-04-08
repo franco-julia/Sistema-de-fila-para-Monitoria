@@ -25,12 +25,18 @@
     </audio>
 
     <script>
+        const params = new URLSearchParams(window.location.search);
+        const institutionId = params.get('institution') || localStorage.getItem('institution_id') || null;
+        const monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;
+        const monitoriaId = params.get('monitoria') || localStorage.getItem('monitoria_id') || null;
+        const role = localStorage.getItem('user_role') || 'MONITOR';
+
         const socket = io('http://localhost:5005', {
             auth: {
-                institutionId: dadosLogin.institutionId,
-                userId: dadosLogin.monitorId,
-                role: 'MONITOR',
-                monitoriaId: monitoriaIdSelecionada
+                institutionId,
+                userId: monitorId,
+                role,
+                monitoriaId
             }
         });
         let statusAnterior = {};
@@ -42,10 +48,65 @@
             tempoExtraMs: 5 * 60 * 1000
         };
 
-        const params = new URLSearchParams(window.location.search);
-        const institutionId = params.get('institution');
 
-        socket.emit('joinInstitution', { institutionId });
+        function normalizarEstadoServidor(payload) {
+            const base = payload || {};
+            const monitores = Array.isArray(base.monitores) ? base.monitores : [];
+            const fila = Array.isArray(base.fila) ? base.fila : [];
+            const dados = {};
+
+            monitores.forEach((monitor) => {
+                const monitoriaAtualId = monitor?.sessaoAtiva?.monitoriaId || null;
+                const filaMonitoria = monitoriaAtualId
+                    ? fila.filter(item => item.monitoriaId === monitoriaAtualId)
+                    : [];
+                const atualBruto = filaMonitoria.find(item => item.status === 'IN_SERVICE')
+                    || filaMonitoria.find(item => item.status === 'CALLED')
+                    || null;
+                const filaEspera = filaMonitoria.filter(item => item.status === 'WAITING');
+                const tituloMonitoria = filaMonitoria.find(item => item?.monitoria?.title)?.monitoria?.title || 'Monitoria';
+
+                dados[monitor.id] = {
+                    id: monitor.id,
+                    nome: monitor.name || 'Monitor',
+                    materias: [tituloMonitoria],
+                    status: monitor.isOnline ? 'disponível' : 'offline',
+                    fila: filaEspera.map(item => ({
+                        id: item.id,
+                        nome: item?.student?.name || 'Aluno',
+                        telefone: item?.student?.id || '',
+                        materia: item?.monitoria?.title || tituloMonitoria,
+                        modulos: [],
+                        inicioFila: item?.createdAt ? new Date(item.createdAt).getTime() : null
+                    })),
+                    atual: atualBruto ? {
+                        id: atualBruto.id,
+                        nome: atualBruto?.student?.name || 'Aluno',
+                        telefone: atualBruto?.student?.id || '',
+                        materia: atualBruto?.monitoria?.title || tituloMonitoria,
+                        modulos: [],
+                        status: atualBruto.status === 'IN_SERVICE' ? 'em_atendimento' : 'chamado',
+                        chegadaLimiteEm: atualBruto.calledAt ? new Date(atualBruto.calledAt).getTime() + 2 * 60 * 1000 : null,
+                        atendimentoInicioEm: atualBruto.startedAt ? new Date(atualBruto.startedAt).getTime() : null,
+                        atendimentoLimiteEm: atualBruto.startedAt ? new Date(atualBruto.startedAt).getTime() + 15 * 60 * 1000 : null,
+                        extraLiberado: false
+                    } : null,
+                    sessaoAtiva: monitor.sessaoAtiva || null
+                };
+            });
+
+            return {
+                dados,
+                historico: [],
+                serverTime: Date.now(),
+                config: {
+                    tempoChegadaMs: 2 * 60 * 1000,
+                    tempoAtendimentoMs: 15 * 60 * 1000,
+                    tempoExtraMs: 5 * 60 * 1000
+                }
+            };
+        }
+
 
         function atualizarOffsetServidor(serverTime) {
             if (typeof serverTime === 'number') {
@@ -66,7 +127,7 @@
 
         function renderTV() {
             const grid = document.getElementById('tv-grid');
-            const monitoriasAtivas = Object.entries((ultimoEstadoGeral && ultimoEstadoGeral.dados) || {});
+            const monitoriasAtivas = Object.entries((ultimoEstadoGeral && ultimoEstadoGeral.dados) || {}).filter(([, info]) => info.status !== 'offline');
 
             if (monitoriasAtivas.length === 0) {
                 grid.innerHTML = `
@@ -138,7 +199,8 @@
             renderTV();
         }, 1000);
 
-        socket.on('atualizarGeral', (data) => {
+        socket.on('dados-iniciais', (payload) => {
+            const data = normalizarEstadoServidor(payload);
             ultimoEstadoGeral = data;
             atualizarOffsetServidor(data.serverTime);
             configTempos = data.config || configTempos;
@@ -152,10 +214,6 @@
                 audio.play().catch(err => console.log("Interação necessária para som:", err));
             }
         }
-
-        socket.on('alertaChamada', () => {
-            tocarSom();
-        });
     </script>
 </body>
 </html>

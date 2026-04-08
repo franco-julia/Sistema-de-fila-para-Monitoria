@@ -87,12 +87,18 @@
     </div>
 
     <script>
+        const params = new URLSearchParams(window.location.search);
+        const institutionId = params.get('institution') || localStorage.getItem('institution_id') || null;
+        const monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;
+        const monitoriaId = params.get('monitoria') || localStorage.getItem('monitoria_id') || null;
+        const role = localStorage.getItem('user_role') || 'MONITOR';
+
         const socket = io('http://localhost:5005', {
             auth: {
-                institutionId: dadosLogin.institutionId,
-                userId: dadosLogin.monitorId,
-                role: 'MONITOR',
-                monitoriaId: monitoriaIdSelecionada
+                institutionId,
+                userId: monitorId,
+                role,
+                monitoriaId
             }
         });
         let chartMaterias, chartFrentes, chartMonitores;
@@ -287,12 +293,26 @@
 
         function atualizarTabela(historico) {
             const tbody = document.getElementById('tabela-corpo');
-            tbody.innerHTML = [...historico].reverse().map(h => {
+
+            tbody.innerHTML = (historico || []).map(h => {
+
                 const modulosHTML = Array.isArray(h.modulos) && h.modulos.length
                     ? `<div class="modulos-flex">${h.modulos.map(m => `<span class="badge-modulo">${m}</span>`).join('')}</div>`
                     : '---';
-                const horaInicio = h.inicio ? new Date(h.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '---';
-                const duracaoFormatada = h.duracao != null ? `${h.duracao} min` : '---';
+
+                const dataInicio = h.inicio ? new Date(h.inicio) : null;
+                const horaInicio = dataInicio && !isNaN(dataInicio)
+                    ? dataInicio.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    : '---';
+
+                const duracaoFormatada = h.duracao != null
+                    ? `${h.duracao} min`
+                    : '---';
+
+                const estrelas = typeof h.nota === 'number'
+                    ? '⭐'.repeat(h.nota)
+                    : '---';
+
                 return `
                     <tr>
                         <td style="color: #ffffff; font-size: 0.8rem;">${h.nome || 'Aluno'}</td>
@@ -300,10 +320,11 @@
                         <td><span class="badge-modulo">${h.materia || '---'}</span></td>
                         <td>${modulosHTML}</td>
                         <td><span class="badge-modulo">${h.atendidoPor || '---'}</span></td>
-                        <td>${h.nota ? '⭐'.repeat(h.nota) : '---'}</td>
+                        <td>${estrelas}</td>
                         <td style="color: #ffffff; font-size: 0.8rem;">${horaInicio}</td>
                         <td style="color: #ffffff; font-size: 0.8rem;">${duracaoFormatada}</td>
-                    </tr>`;
+                    </tr>
+                `;
             }).join('');
         }
 
@@ -342,7 +363,68 @@
             window.location.href = '/exportar-csv';
         }
 
-        socket.on('atualizarGeral', (data) => {
+        
+        function normalizarEstadoServidor(payload) {
+            const base = payload || {};
+            const monitores = Array.isArray(base.monitores) ? base.monitores : [];
+            const fila = Array.isArray(base.fila) ? base.fila : [];
+            const dados = {};
+
+            monitores.forEach((monitor) => {
+                const monitoriaAtualId = monitor?.sessaoAtiva?.monitoriaId || null;
+                const filaMonitoria = monitoriaAtualId
+                    ? fila.filter(item => item.monitoriaId === monitoriaAtualId)
+                    : [];
+                const atualBruto = filaMonitoria.find(item => item.status === 'IN_SERVICE')
+                    || filaMonitoria.find(item => item.status === 'CALLED')
+                    || null;
+                const filaEspera = filaMonitoria.filter(item => item.status === 'WAITING');
+                const tituloMonitoria = filaMonitoria.find(item => item?.monitoria?.title)?.monitoria?.title || 'Monitoria';
+
+                dados[monitor.id] = {
+                    id: monitor.id,
+                    nome: monitor.name || 'Monitor',
+                    materias: [tituloMonitoria],
+                    status: monitor.isOnline ? 'disponível' : 'offline',
+                    fila: filaEspera.map(item => ({
+                        id: item.id,
+                        nome: item?.student?.name || 'Aluno',
+                        telefone: item?.student?.id || '',
+                        materia: item?.monitoria?.title || tituloMonitoria,
+                        modulos: [],
+                        inicioFila: item?.createdAt ? new Date(item.createdAt).getTime() : null
+                    })),
+                    atual: atualBruto ? {
+                        id: atualBruto.id,
+                        nome: atualBruto?.student?.name || 'Aluno',
+                        telefone: atualBruto?.student?.id || '',
+                        materia: atualBruto?.monitoria?.title || tituloMonitoria,
+                        modulos: [],
+                        status: atualBruto.status === 'IN_SERVICE' ? 'em_atendimento' : 'chamado',
+                        chegadaLimiteEm: atualBruto.calledAt ? new Date(atualBruto.calledAt).getTime() + 2 * 60 * 1000 : null,
+                        atendimentoInicioEm: atualBruto.startedAt ? new Date(atualBruto.startedAt).getTime() : null,
+                        atendimentoLimiteEm: atualBruto.startedAt ? new Date(atualBruto.startedAt).getTime() + 15 * 60 * 1000 : null,
+                        extraLiberado: false
+                    } : null,
+                    sessaoAtiva: monitor.sessaoAtiva || null
+                };
+            });
+
+            return {
+                dados,
+                historico: Array.isArray(base.historico) ? base.historico : [],
+                serverTime: Date.now(),
+                config: {
+                    tempoChegadaMs: 2 * 60 * 1000,
+                    tempoAtendimentoMs: 15 * 60 * 1000,
+                    tempoExtraMs: 5 * 60 * 1000
+                }
+            };
+        }
+
+
+        socket.on('dados-iniciais', (payload) => {
+            const data = normalizarEstadoServidor(payload);
             ultimoHistorico = data.historico || [];
             ultimoDados = data.dados || {};
             if (!chartMaterias || !chartFrentes || !chartMonitores) inicializarGraficos();

@@ -43,7 +43,7 @@
                 </div>
                 <div style="display: flex; gap: 10px;">
                     <button id="btn-status" class="btn-acao btn-pausa" onclick="alternarPausa()">PAUSAR MONITORIA</button>
-                    <button class="btn-acao" style="background: #64748b; color:white;" onclick="location.reload()">SAIR</button>
+                    <button class="btn-acao" style="background: #64748b; color:white;" onclick="sair()">SAIR</button>
                 </div>
             </div>
 
@@ -101,28 +101,19 @@
     </div>
 
     <script>
-        const socket = io('http://localhost:5005', {
-            auth: {
-                institutionId: dadosLogin.institutionId,
-                userId: dadosLogin.monitorId,
-                role: 'MONITOR',
-                monitoriaId: monitoriaIdSelecionada
-            }
-        });
-        console.log('socket monitor criado');
+        const API_BASE = 'http://localhost:5005';
 
-        socket.on('connect', () => {
-            console.log('monitor conectado ao socket:', socket.id);
-        });
-
-        socket.on('connect_error', (err) => {
-            console.error('erro ao conectar socket do monitor:', err);
-        });
+        const params = new URLSearchParams(window.location.search);
+        let institutionId = params.get('institution') || localStorage.getItem('institution_id') || null;
+        let monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;
+        let monitoriaId = params.get('monitoria') || localStorage.getItem('monitoria_id') || null;
+        let role = 'MONITOR';
+        let socket = null;
 
         let minhaMateria = [];
-        let nomeMonitor = "";
+        let nomeMonitor = '';
         let monitorLogado = null;
-        let statusLocal = "disponível";
+        let statusLocal = 'disponível';
         let chartMaterias = null;
         let chartHorariosPico = null;
         let ultimoEstadoGeral = null;
@@ -136,90 +127,183 @@
         Chart.defaults.color = '#ffffff';
         Chart.defaults.borderColor = '#ffffff';
 
-        const params = new URLSearchParams(window.location.search);
-        const institutionId = params.get('institution');
+        function criarSocket() {
+            if (!institutionId) return null;
+            if (socket) {
+                socket.removeAllListeners();
+                socket.disconnect();
+            }
 
-        socket.emit('joinInstitution', { institutionId });
+            socket = io(API_BASE, {
+                auth: {
+                    institutionId,
+                    userId: monitorId,
+                    role,
+                    monitoriaId
+                }
+            });
+
+            socket.on('connect', () => {
+                console.log('monitor conectado ao socket:', socket.id);
+            });
+
+            socket.on('connect_error', (err) => {
+                console.error('erro ao conectar socket do monitor:', err);
+            });
+
+            socket.on('erro', (payload) => {
+                if (payload?.message) alert(payload.message);
+            });
+
+            socket.on('dados-iniciais', (payload) => {
+                const estado = normalizarEstadoServidor(payload);
+                ultimoEstadoGeral = estado;
+                atualizarOffsetServidor(estado.serverTime);
+                configTempos = estado.config || configTempos;
+                renderizarEstadoMonitor();
+            });
+
+            return socket;
+        }
+
+        function sair() {
+            if (socket) {
+                try { socket.emit('monitor:offline'); } catch {}
+                socket.disconnect();
+            }
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('monitor_id');
+            localStorage.removeItem('monitoria_id');
+            localStorage.removeItem('user_role');
+            location.reload();
+        }
+
+        function normalizarModulos(item) {
+            const parts = [];
+
+            if (item?.module?.code || item?.module?.title) {
+                const rotulo = [item.module.code, item.module.title].filter(Boolean).join(' - ');
+                parts.push(rotulo);
+            }
+
+            return parts;
+        }
+
+        function montarHistorico(base) {
+            const fila = Array.isArray(base?.fila) ? base.fila : [];
+            return fila
+                .filter(item => item.status === 'FINISHED')
+                .map(item => ({
+                    atendidoPor: item?.monitoria?.title || '',
+                    materia: item?.subject?.name || item?.monitoria?.title || 'Sem matéria',
+                    modulo: item?.module ? [item.module.code, item.module.title].filter(Boolean).join(' - ') : 'Não informado',
+                    modulos: normalizarModulos(item),
+                    inicio: item.startedAt || item.calledAt || item.createdAt || null
+                }));
+        }
+
+        function normalizarEstadoServidor(payload) {
+            const base = payload || {};
+            const monitores = Array.isArray(base.monitores) ? base.monitores : [];
+            const fila = Array.isArray(base.fila) ? base.fila : [];
+            const dados = {};
+
+            monitores.forEach((monitor) => {
+                const monitoriaAtualId = monitor?.sessaoAtiva?.monitoriaId || null;
+                const filaMonitoria = monitoriaAtualId
+                    ? fila.filter(item => (item.monitoria?.id || item.monitoriaId) === monitoriaAtualId)
+                    : [];
+                const atualBruto = filaMonitoria.find(item => item.status === 'IN_SERVICE')
+                    || filaMonitoria.find(item => item.status === 'CALLED')
+                    || null;
+                const filaEspera = filaMonitoria.filter(item => item.status === 'WAITING');
+                const tituloMonitoria = filaMonitoria.find(item => item?.monitoria?.title)?.monitoria?.title
+                    || monitor?.sessaoAtiva?.monitoriaTitle
+                    || 'Monitoria';
+
+                dados[monitor.id] = {
+                    id: monitor.id,
+                    nome: monitor.name || 'Monitor',
+                    materias: [tituloMonitoria],
+                    status: monitor.isOnline ? 'disponível' : 'offline',
+                    fila: filaEspera.map(item => ({
+                        id: item.id,
+                        nome: item?.student?.name || item?.student?.id || 'Aluno',
+                        telefone: item?.student?.id || '',
+                        materia: item?.subject?.name || item?.monitoria?.title || tituloMonitoria,
+                        modulos: normalizarModulos(item),
+                        inicioFila: item?.createdAt ? new Date(item.createdAt).getTime() : null
+                    })),
+                    atual: atualBruto ? {
+                        id: atualBruto.id,
+                        nome: atualBruto?.student?.name || atualBruto?.student?.id || 'Aluno',
+                        telefone: atualBruto?.student?.id || '',
+                        materia: atualBruto?.subject?.name || atualBruto?.monitoria?.title || tituloMonitoria,
+                        modulos: normalizarModulos(atualBruto),
+                        status: atualBruto.status === 'IN_SERVICE' ? 'em_atendimento' : 'chamado',
+                        chegadaLimiteEm: atualBruto.calledAt ? new Date(atualBruto.calledAt).getTime() + configTempos.tempoChegadaMs : null,
+                        atendimentoInicioEm: atualBruto.startedAt ? new Date(atualBruto.startedAt).getTime() : null,
+                        atendimentoLimiteEm: atualBruto.startedAt ? new Date(atualBruto.startedAt).getTime() + configTempos.tempoAtendimentoMs : null,
+                        extraLiberado: false
+                    } : null,
+                    sessaoAtiva: monitor.sessaoAtiva || null
+                };
+            });
+
+            return {
+                dados,
+                historico: montarHistorico(base),
+                serverTime: Date.now(),
+                config: {
+                    tempoChegadaMs: 2 * 60 * 1000,
+                    tempoAtendimentoMs: 15 * 60 * 1000,
+                    tempoExtraMs: 5 * 60 * 1000
+                }
+            };
+        }
 
         function agoraServidor() {
             return Date.now() - serverOffsetMs;
         }
 
         function atualizarOffsetServidor(serverTime) {
-            if (typeof serverTime === 'number') {
-                serverOffsetMs = Date.now() - serverTime;
-            }
+            if (typeof serverTime === 'number') serverOffsetMs = Date.now() - serverTime;
         }
 
-        function login() {
+        async function login() {
             const user = document.getElementById('user').value.trim();
             const pass = document.getElementById('pass').value.trim();
-            localStorage.setItem('auth_token', data.token);
-            localStorage.setItem('monitor_username', data.usuario);
 
             if (!user || !pass) {
-                alert("Preencha os campos.");
+                alert('Preencha os campos.');
                 return;
             }
 
-            fetch('/login-monitor', {
+            const res = await fetch(`${API_BASE}/login-monitor`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ usuario: user, senha: pass })
-            })
-            .then(res => res.json())
-            .then(data => {
-            console.log('resposta do login HTTP:', data);
-
-            if (!data.success) {
-                alert("Dados de acesso incorretos.");
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                alert(data.message || 'Dados de acesso incorretos.');
                 return;
             }
 
-            monitorLogado = user;
-            nomeMonitor = data.nome;
-            minhaMateria = Array.isArray(data.materia) ? data.materia : [data.materia].filter(Boolean);
+            monitorLogado = data.monitorId;
+            monitorId = data.monitorId;
+            institutionId = data.institutionId;
+            nomeMonitor = data.nome || user;
+            minhaMateria = Array.isArray(data.monitorias) ? data.monitorias.map(item => item.title).filter(Boolean) : [];
+            monitoriaId = (Array.isArray(data.monitorias) && data.monitorias[0]) ? data.monitorias[0].id : null;
 
-            console.log('vou emitir loginMonitor com usuário:', user);
-            socket.emit('loginMonitor', {
-                token: localStorage.getItem('auth_token')
-            });
+            localStorage.setItem('auth_token', data.token || '');
+            localStorage.setItem('monitor_id', monitorId || '');
+            localStorage.setItem('institution_id', institutionId || '');
+            localStorage.setItem('user_role', 'MONITOR');
+            if (monitoriaId) localStorage.setItem('monitoria_id', monitoriaId);
 
-            socket.on('loginMonitor', async (identificacao) => {
-                try {
-                    const monitor = await prisma.monitor.findFirst({
-                        where: {
-                            institutionId: INSTITUTION_ID,
-                            username: identificacao.usuario
-                        },
-                        include: {
-                            subjects: true
-                        }
-                    });
-
-                    if (!monitor) {
-                        socket.emit('loginErro', 'Monitor não encontrado.');
-                        return;
-                    }
-
-                    socket.emit('loginSucesso', {
-                        monitor: {
-                            id: monitor.id,
-                            nome: monitor.name,
-                            materias: monitor.subjects.map(s => s.subject),
-                            status: monitor.status === 'PAUSED' ? 'em pausa' : 'disponível',
-                            fila: [],
-                            atual: null
-                        },
-                        usuario: monitor.username
-                    });
-
-                    await atualizarTodos();
-                } catch (error) {
-                    console.error('Erro no loginMonitor:', error);
-                    socket.emit('loginErro', 'Erro ao carregar monitor.');
-                }
-            });
+            criarSocket();
 
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('dashboard').style.display = 'flex';
@@ -227,57 +311,93 @@
             document.getElementById('nome-monitor-display').innerText = nomeMonitor;
 
             inicializarGraficos();
-            preencherFiltroMateria();
-        })
-        .catch(() => alert("Erro ao fazer login."));
-        }
+            preencherFiltroMaterias();
 
-        function preencherFiltroMateria() {
-            const select = document.getElementById('filtro-materia-monitor');
-            const titulo = document.getElementById('titulo-chart-monitor');
-            if (!select || !titulo) return;
-
-            const materias = Array.isArray(minhaMateria) ? minhaMateria : [];
-            select.innerHTML = '<option value="__todas__">Todas as matérias</option>';
-
-            materias.forEach(m => {
-                const option = document.createElement('option');
-                option.value = m;
-                option.textContent = m;
-                select.appendChild(option);
-            });
-
-            if (materias.length <= 1) {
-                titulo.innerText = 'Módulos mais pedidos';
-                select.style.display = 'none';
-                select.value = '__todas__';
-            } else {
-                titulo.innerText = 'Volume de matérias';
-                select.style.display = 'none';
-                select.value = '__todas__';
+            if (socket && monitoriaId) {
+                socket.emit('monitor:online', {
+                    userId: monitorId,
+                    institutionId,
+                    monitoriaId
+                });
+                socket.emit('fila:atualizar');
             }
         }
 
-        function chamarProximo() {
-            if (!monitorLogado) return alert("Sessão expirada. Faça login novamente.");
-            socket.emit('proximo', { usuario: monitorLogado, monitor: nomeMonitor });
+        async function chamarProximo() {
+            if (!monitoriaId || !institutionId) return alert('Monitoria não identificada.');
+
+            const meuMonitor = ultimoEstadoGeral?.dados?.[monitorLogado];
+            const atual = meuMonitor?.atual || null;
+
+            if (atual?.status === 'chamado') {
+                return alert('Confirme a chegada ou aguarde o tempo de chegada expirar.');
+            }
+
+            if (atual?.status === 'em_atendimento') {
+                const resp = await fetch(`${API_BASE}/queue/${atual.id}/finish`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ note: null })
+                });
+                const data = await resp.json();
+                if (!fimResp.ok || !data.success) return alert(data.message || 'Erro ao finalizar atendimento.');
+            }
+
+            const resp = await fetch(`${API_BASE}/queue/${monitoriaId}/next`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ institutionId })
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.success) return alert(data.message || 'Erro ao chamar próximo.');
+
+            if (socket) socket.emit('fila:atualizar');
         }
 
-        function confirmarChegada() {
-            if (monitorLogado) socket.emit('confirmarChegada', { usuario: monitorLogado });
+        async function confirmarChegada() {
+            const atual = ultimoEstadoGeral?.dados?.[monitorLogado]?.atual;
+            if (!atual?.id) return;
+
+            try {
+                const resp = await fetch(`${API_BASE}/queue/${atual.id}/start-service`, {
+                    method: 'POST'
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok || !data.success) {
+                    return alert(data.message || 'Erro ao confirmar chegada.');
+                }
+
+                if (socket) socket.emit('fila:atualizar');
+            } catch (error) {
+                console.error(error);
+                alert(error.message || 'Erro ao confirmar chegada.');
+            }
         }
 
         function adicionarMaisCinco() {
-            if (monitorLogado) socket.emit('addTempoExtra', { usuario: monitorLogado });
+            alert('O backend ainda não possui rota para +5 min.');
         }
 
         function alternarPausa() {
-            if (!monitorLogado) return;
-            statusLocal = statusLocal === "disponível" ? "em pausa" : "disponível";
-            socket.emit('alternarPausa', { usuario: monitorLogado, status: statusLocal });
+            statusLocal = statusLocal === 'em pausa' ? 'disponível' : 'em pausa';
+            atualizarBotaoStatus(statusLocal);
+            renderizarEstadoMonitor();
+        }
+
+        function preencherFiltroMaterias() {
+            const select = document.getElementById('filtro-materia-monitor');
+            if (!select) return;
+            const atual = select.value || '__todas__';
+            const materias = Array.from(new Set((Array.isArray(minhaMateria) ? minhaMateria : []).filter(Boolean)));
+            select.innerHTML = '<option value="__todas__">Todas as matérias</option>' +
+                materias.map(m => `<option value="${m}">${m}</option>`).join('');
+            if (materias.includes(atual) || atual === '__todas__') select.value = atual;
         }
 
         function inicializarGraficos() {
+            if (chartMaterias || chartHorariosPico) return;
             const canvasMaterias = document.getElementById('chartMateriasMonitor');
             const canvasPico = document.getElementById('chartHorariosPico');
 
@@ -286,6 +406,8 @@
                     type: 'bar',
                     data: { labels: [], datasets: [{ label: 'Módulos', data: [], backgroundColor: '#6035a9', borderRadius: 6 }] },
                     options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
                         scales: {
                             x: {
                                 ticks: {
@@ -294,22 +416,18 @@
                                     minRotation: 0,
                                     callback: function(value) {
                                         const label = this.getLabelForValue(value);
-
-                                        const palavras = label.split(' ');
+                                        const palavras = String(label || '').split(' ');
                                         const linhas = [];
                                         let linhaAtual = '';
-
                                         palavras.forEach(palavra => {
-                                        if ((linhaAtual + palavra).length > 12) {
-                                            linhas.push(linhaAtual.trim());
-                                            linhaAtual = palavra + ' ';
-                                        } else {
-                                            linhaAtual += palavra + ' ';
-                                        }
+                                            if ((linhaAtual + palavra).length > 12) {
+                                                linhas.push(linhaAtual.trim());
+                                                linhaAtual = palavra + ' ';
+                                            } else {
+                                                linhaAtual += palavra + ' ';
+                                            }
                                         });
-
                                         if (linhaAtual) linhas.push(linhaAtual.trim());
-
                                         return linhas;
                                     }
                                 }
@@ -355,10 +473,12 @@
 
         function atualizarRelogiosLocais() {
             if (!ultimoEstadoGeral || !monitorLogado) return;
+
             const monitor = (ultimoEstadoGeral.dados || {})[monitorLogado];
             if (!monitor) return;
 
             const atual = monitor.atual;
+
             const btnConfirmar = document.getElementById('btn-confirmar-chegada');
             const btnExtra = document.getElementById('btn-extra');
             const wrapChegada = document.getElementById('timer-chegada-wrap');
@@ -376,35 +496,44 @@
             btnConfirmar.style.display = 'none';
             btnExtra.style.display = 'none';
             alerta.style.display = 'none';
+            btnProximo.style.display = 'inline-flex';
+            btnProximo.disabled = false;
 
             if (!atual) {
                 faseLabel.innerText = 'ATENDENDO AGORA:';
                 btnProximo.innerText = 'CHAMAR PRÓXIMO ➔';
                 timerChegada.innerText = '02:00';
                 timerAtendimento.innerText = '00:00';
-                if (!detalhes.innerText.includes('monitoria')) detalhes.innerText = '';
                 return;
             }
 
             if (atual.status === 'chamado') {
                 const restante = atual.chegadaLimiteEm ? (atual.chegadaLimiteEm - agora) : 0;
+
                 faseLabel.innerText = 'ALUNO CHAMADO:';
-                btnProximo.innerText = 'PULAR E CHAMAR PRÓXIMO ➔';
                 btnConfirmar.style.display = 'inline-flex';
+                btnProximo.style.display = 'none';
+
                 wrapChegada.style.display = 'inline-flex';
                 timerChegada.innerText = formatarMMSS(restante);
-                detalhes.innerText = restante > 0 ? 'Aguardando o aluno chegar à sala.' : 'Tempo de chegada esgotado. O aluno voltará ao fim da fila.';
+                detalhes.innerText = restante > 0
+                    ? 'Aguardando o aluno chegar à sala.'
+                    : 'Tempo de chegada esgotado.';
                 return;
             }
 
             if (atual.status === 'em_atendimento') {
                 const decorrido = atual.atendimentoInicioEm ? (agora - atual.atendimentoInicioEm) : 0;
                 const restante = atual.atendimentoLimiteEm ? (atual.atendimentoLimiteEm - agora) : 0;
+
                 faseLabel.innerText = 'ATENDENDO AGORA:';
                 btnProximo.innerText = 'FINALIZAR E CHAMAR PRÓXIMO ➔';
+                btnProximo.style.display = 'inline-flex';
+
                 wrapAtendimento.style.display = 'inline-flex';
                 timerAtendimento.innerText = formatarEspera(decorrido);
                 detalhes.innerText = `Tempo restante: ${formatarMMSS(restante)}`;
+
                 if (restante <= configTempos.tempoExtraMs) {
                     alerta.style.display = 'block';
                     if (!atual.extraLiberado) btnExtra.style.display = 'inline-flex';
@@ -412,32 +541,14 @@
             }
         }
 
-        socket.on('loginSucesso', (data) => {
-            if (!data || !data.monitor) return;
-            statusLocal = data.monitor.status || 'disponível';
-            atualizarBotaoStatus(statusLocal);
-        });
+        function atualizarBotaoStatus(status) {
+            const btn = document.getElementById('btn-status');
+            if (btn) btn.innerText = status === 'em pausa' ? 'RETOMAR MONITORIA' : 'PAUSAR MONITORIA';
+        }
 
-        socket.on('loginErro', (msg) => alert(msg || 'Erro ao entrar como monitor.'));
-        socket.on('erroAcao', (msg) => alert(msg || 'Não foi possível concluir a ação.'));
-
-        socket.on('alertaTempoFinal', (dados) => {
-            if (dados.monitorUsuario === monitorLogado) {
-                const alerta = document.getElementById('alerta-mais-cinco');
-                if (alerta) alerta.style.display = 'block';
-                if (dados.podeAdicionarMaisCinco) {
-                    document.getElementById('btn-extra').style.display = 'inline-flex';
-                }
-            }
-        });
-
-        socket.on('atualizarGeral', (data) => {
-            ultimoEstadoGeral = data;
-            atualizarOffsetServidor(data.serverTime);
-            configTempos = data.config || configTempos;
-            if (!monitorLogado) return;
-
-            const meuMonitor = (data.dados || {})[monitorLogado];
+        function renderizarEstadoMonitor() {
+            if (!monitorLogado || !ultimoEstadoGeral) return;
+            const meuMonitor = (ultimoEstadoGeral.dados || {})[monitorLogado];
             if (!meuMonitor) return;
 
             const fila = meuMonitor.fila || [];
@@ -454,17 +565,19 @@
                 }).join('')
                 : '<div class="aluno-item"><b>Fila vazia</b><small>Nenhum aluno aguardando.</small></div>';
 
-            statusLocal = meuMonitor.status || 'disponível';
-            document.getElementById('nome-monitor-display').innerText = meuMonitor.nome || nomeMonitor;
-            document.getElementById('materias-monitor-display').innerText = Array.isArray(meuMonitor.materias) ? meuMonitor.materias.join(', ') : '';
-            atualizarBotaoStatus(statusLocal);
-
             const atual = meuMonitor.atual;
             const alunoNome = document.getElementById('aluno-atual-nome');
             const alunoDetalhes = document.getElementById('aluno-atual-detalhes');
             const modulosAtual = document.getElementById('modulos-atual');
             const btnProximo = document.getElementById('btn-proximo');
             const card = document.getElementById('card-atendimento');
+
+            document.getElementById('nome-monitor-display').innerText = meuMonitor.nome || nomeMonitor;
+            const materiasMonitor = Array.isArray(meuMonitor.subjects) && meuMonitor.subjects.length
+                ? meuMonitor.subjects.map(s => s.name).join(' • ')
+                : (Array.isArray(meuMonitor.materias) ? meuMonitor.materias.join(' • ') : '');
+
+            document.getElementById('materias-monitor-display').innerText = materiasMonitor || 'Matérias não informadas';
 
             if (statusLocal === 'em pausa' && !atual) {
                 alunoNome.innerText = 'EM PAUSA';
@@ -477,57 +590,46 @@
                 card.classList.remove('card-pausado');
                 if (atual) {
                     alunoNome.innerText = atual.nome || 'Aluno';
-                    modulosAtual.innerHTML = Array.isArray(atual.modulos) && atual.modulos.length
-                        ? atual.modulos.map(mod => `<span class="tag-modulo">${mod}</span>`).join('')
+                    alunoDetalhes.innerText = atual.materia || '';
+                    const badges = [];
+                    if (atual?.materia) {
+                        badges.push(`<span class="tag-modulo tag-materia">${atual.materia}</span>`);
+                    }
+
+                    if (Array.isArray(atual.modulos) && atual.modulos.length) {
+                        badges.push(...atual.modulos.map(mod => `<span class="tag-modulo">${mod}</span>`));
+                    }
+
+                    modulosAtual.innerHTML = badges.length
+                        ? badges.join('')
                         : 'Nenhum módulo selecionado.';
                 } else {
                     alunoNome.innerText = 'Livre';
-                    alunoDetalhes.innerText = fila.length ? `Próximo na fila: ${fila[0].nome}` : '';
+                    alunoDetalhes.innerText = fila.length ? `Próximo na fila: ${fila[0].nome}` : 'Nenhum aluno aguardando.';
                     modulosAtual.innerHTML = 'Aguardando próximo atendimento.';
                 }
             }
 
             atualizarRelogiosLocais();
-            atualizarEstatisticas(data.historico || []);
-        });
-
-        setInterval(atualizarRelogiosLocais, 1000);
-
-        function atualizarBotaoStatus(status) {
-            const btn = document.getElementById('btn-status');
-            if (btn) btn.innerText = status === 'em pausa' ? 'RETOMAR MONITORIA' : 'PAUSAR MONITORIA';
+            atualizarEstatisticas(ultimoEstadoGeral.historico || []);
         }
 
         function atualizarEstatisticas(historico) {
-            const meusAtendimentos = (Array.isArray(historico) ? historico : []).filter(h => {
-                return h && h.atendidoPor === nomeMonitor;
-            });
+            const meusAtendimentos = Array.isArray(historico) ? historico : [];
 
             const totalAtendimentosEl = document.getElementById('total-atendimentos');
-            if (totalAtendimentosEl) {
-                totalAtendimentosEl.innerText = meusAtendimentos.length;
-            }
+            if (totalAtendimentosEl) totalAtendimentosEl.innerText = meusAtendimentos.length;
 
             const filtroMateria = document.getElementById('filtro-materia-monitor')?.value || '__todas__';
-
             const baseFiltrada = filtroMateria === '__todas__'
                 ? meusAtendimentos
                 : meusAtendimentos.filter(h => h.materia === filtroMateria);
 
             const contagemModulos = {};
-            const contagemMaterias = {};
             const contagemHorarios = {};
 
             baseFiltrada.forEach(h => {
-                if (!h) return;
-
-                const materia = (h.materia || 'Sem matéria').trim();
-                contagemMaterias[materia] = (contagemMaterias[materia] || 0) + 1;
-
-                const listaModulos = Array.isArray(h.modulos) && h.modulos.length
-                    ? h.modulos
-                    : (h.modulo ? [h.modulo] : []);
-
+                const listaModulos = Array.isArray(h.modulos) && h.modulos.length ? h.modulos : (h.modulo ? [h.modulo] : []);
                 if (listaModulos.length) {
                     listaModulos.forEach(mod => {
                         const nomeModulo = String(mod || 'Não informado').trim();
@@ -536,10 +638,9 @@
                 } else {
                     contagemModulos['Não informado'] = (contagemModulos['Não informado'] || 0) + 1;
                 }
-
                 if (h.inicio) {
                     const dataInicio = new Date(h.inicio);
-                    if (!isNaN(dataInicio.getTime())) {
+                    if (!Number.isNaN(dataInicio.getTime())) {
                         const hora = dataInicio.getHours().toString().padStart(2, '0') + ':00';
                         contagemHorarios[hora] = (contagemHorarios[hora] || 0) + 1;
                     }
@@ -553,49 +654,34 @@
             if (chartMaterias) {
                 chartMaterias.data.labels = topModulos.map(([nome]) => nome);
                 chartMaterias.data.datasets[0].data = topModulos.map(([, total]) => total);
-                chartMaterias.data.datasets[0].label = 'Módulos mais pedidos';
                 chartMaterias.update();
             }
 
-            const tituloGrafico = document.querySelector('#card-chart-materias h3');
-            if (tituloGrafico) {
-                tituloGrafico.innerText = 'Módulos mais pedidos';
-            }
-
             const horasOrdenadas = Object.keys(contagemHorarios).sort();
-
             if (chartHorariosPico) {
                 chartHorariosPico.data.labels = horasOrdenadas;
                 chartHorariosPico.data.datasets[0].data = horasOrdenadas.map(hora => contagemHorarios[hora]);
                 chartHorariosPico.update();
             }
+        }
 
-            const materiasDoMonitor = Array.isArray(minhaMateria) ? minhaMateria.filter(Boolean) : [];
-            const ehMultidisciplinar = materiasDoMonitor.length > 1;
+        setInterval(atualizarRelogiosLocais, 1000);
 
-            const cardMaterias = document.getElementById('card-chart-materias');
-            if (cardMaterias) {
-                cardMaterias.classList.remove('oculto');
-            }
-
-            const selectFiltro = document.getElementById('filtro-materia-monitor');
-            if (selectFiltro) {
-                if (ehMultidisciplinar) {
-                    selectFiltro.style.display = 'inline-block';
-                } else {
-                    selectFiltro.style.display = 'none';
+        if (institutionId && monitorId && monitoriaId) {
+            monitorLogado = monitorId;
+            nomeMonitor = localStorage.getItem('monitor_name') || 'Monitor';
+            criarSocket();
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'flex';
+            document.getElementById('nome-monitor-display').innerText = nomeMonitor;
+            inicializarGraficos();
+            preencherFiltroMaterias();
+            setTimeout(() => {
+                if (socket) {
+                    socket.emit('monitor:online', { userId: monitorId, institutionId, monitoriaId });
+                    socket.emit('fila:atualizar');
                 }
-            }
-
-            return {
-                totalAtendimentos: meusAtendimentos.length,
-                modulosMaisPedidos: topModulos,
-                volumePorMateria: Object.entries(contagemMaterias).sort((a, b) => b[1] - a[1]),
-                horariosDePico: horasOrdenadas.map(hora => ({
-                    hora,
-                    total: contagemHorarios[hora]
-                }))
-            };
+            }, 150);
         }
     </script>
 </body>

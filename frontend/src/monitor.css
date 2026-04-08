@@ -280,6 +280,16 @@ h3 { margin-top: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing
     font-weight: 700;
 }
 
+.tag-materia {
+    background: var(--card);
+    border: 1px solid var(--card);
+    color: var(--accent);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
 #aluno-atual-detalhes:empty {
     display: none;
 }

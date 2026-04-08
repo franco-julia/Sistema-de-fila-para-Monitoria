@@ -91,7 +91,7 @@
             }
 
             try {
-                const resp = await fetch('http://localhost:5005/monitors', {
+                const resp = await fetch('${API_BASE}/monitors', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

@@ -13,13 +13,6 @@ const prisma = new PrismaClient();
 const app = express();
 const server = http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
-});
-
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
@@ -31,6 +24,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+const io = new Server(server, {
+  cors: {
+    origin: [FRONTEND_URL, 'http://localhost:5173'],
+    credentials: true
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+
 const frontendPath = path.join(__dirname, 'public');
 
 app.use(express.static(frontendPath));
@@ -38,8 +40,6 @@ app.use(express.static(frontendPath));
 app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
-
-const PORT = process.env.PORT || 5005;
 
 function gerarTokenMonitor(monitor) {
   return jwt.sign(

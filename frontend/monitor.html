@@ -101,8 +101,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:5005';
-
+        const API_BASE = "https://sistema-de-fila-para-monitoria-production.up.railway.app";
         const params = new URLSearchParams(window.location.search);
         let institutionId = params.get('institution') || localStorage.getItem('institution_id') || null;
         let monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;

@@ -107,7 +107,7 @@
 
                 const data = await resp.json();
 
-                if (!resp.ok || !data.success) {
+                if (!resp.ok || !data.ok) {
                     throw new Error(data.error || 'Erro ao cadastrar monitor.');
                 }
 

@@ -339,7 +339,7 @@
                     body: JSON.stringify({ note: null })
                 });
                 const data = await resp.json();
-                if (!fimResp.ok || !data.success) return alert(data.message || 'Erro ao finalizar atendimento.');
+                if (!resp.ok || !data.success) return alert(data.message || 'Erro ao finalizar atendimento.');
             }
 
             const resp = await fetch(`${API_BASE}/queue/${monitoriaId}/next`, {

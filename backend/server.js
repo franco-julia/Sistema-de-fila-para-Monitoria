@@ -1,6 +1,5 @@
 require('dotenv').config();
 
-const path = require('path');
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -1595,7 +1594,7 @@ async function startServer() {
   try {
     await limparSessoesAoIniciar();
 
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`SERVIDOR INICIADO NA PORTA ${PORT}`);
     });
   } catch (error) {

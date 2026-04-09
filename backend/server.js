@@ -21,7 +21,6 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use(express.static(__dirname));
 
 const io = new Server(server, {
   cors: {
@@ -32,12 +31,11 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-const frontendPath = path.join(__dirname, 'public');
-
-app.use(express.static(frontendPath));
-
 app.get('/', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
+  res.json({
+    ok: true,
+    message: 'Backend da fila está online.'
+  });
 });
 
 function gerarTokenMonitor(monitor) {

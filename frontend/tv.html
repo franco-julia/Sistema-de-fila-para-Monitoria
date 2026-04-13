@@ -33,6 +33,8 @@
         const API_BASE = "https://sistema-de-fila-para-monitoria-production.up.railway.app";
 
         const socket = io(API_BASE, {
+            transports: ['websocket'],
+            withCredentials: true,
             auth: {
                 institutionId,
                 userId: monitorId,

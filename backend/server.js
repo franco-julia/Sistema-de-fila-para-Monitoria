@@ -15,8 +15,19 @@ const server = http.createServer(app);
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
+const allowedOrigins = [
+  FRONTEND_URL,
+  'http://localhost:5173'
+];
+
 app.use(cors({
-  origin: [FRONTEND_URL, 'http://localhost:5173'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Origem não permitida: ${origin}`));
+  },
   credentials: true
 }));
 
@@ -24,9 +35,24 @@ app.use(express.json());
 
 const io = new Server(server, {
   cors: {
-    origin: [FRONTEND_URL, 'http://localhost:5173'],
-    credentials: true
-  }
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origem não permitida no socket: ${origin}`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST']
+  },
+  transports: ['websocket', 'polling']
+});
+
+io.engine.on('connection_error', (err) => {
+  console.error('ENGINE SOCKET ERROR');
+  console.error('code:', err.code);
+  console.error('message:', err.message);
+  console.error('context:', err.context);
 });
 
 app.get('/', (req, res) => {
@@ -34,6 +60,14 @@ app.get('/', (req, res) => {
     ok: true,
     message: 'Backend da fila está online.'
   });
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason);
 });
 
 function gerarTokenMonitor(monitor) {

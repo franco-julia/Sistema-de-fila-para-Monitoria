@@ -134,6 +134,8 @@
             }
 
             socket = io(API_BASE, {
+                transports: ['websocket'],
+                withCredentials: true,
                 auth: {
                     institutionId,
                     userId: monitorId,

@@ -103,6 +103,8 @@
         }
 
         const socket = io(API_BASE, {
+            transports: ['websocket'],
+            withCredentials: true,
             auth: {
                 institutionId,
                 role: 'STUDENT'

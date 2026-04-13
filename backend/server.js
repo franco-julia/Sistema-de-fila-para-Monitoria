@@ -1464,6 +1464,8 @@ async function desativarMonitoriasDoMonitor(monitorId, institutionId) {
 
 io.on('connection', async (socket) => {
   console.log('NOVA CONEXÃO SOCKET NO SERVIDOR:', socket.id);
+  console.log('AUTH RECEBIDO:', socket.handshake.auth);
+  console.log('QUERY RECEBIDA:', socket.handshake.query);
 
   let institutionId = null;
   let userId = null;
@@ -1492,8 +1494,11 @@ io.on('connection', async (socket) => {
       null;
 
     if (!institutionId) {
-      socket.emit('erro', { message: 'institutionId não informado na conexão.' });
-      socket.disconnect();
+      console.error('Socket rejeitado: institutionId não informado.', {
+        auth: socket.handshake.auth,
+        query: socket.handshake.query
+      });
+      socket.disconnect(true);
       return;
     }
 
@@ -1504,8 +1509,13 @@ io.on('connection', async (socket) => {
 
     socket.join(`institution:${institutionId}`);
 
-    const dadosIniciais = await obterDadosIniciaisDoBanco(institutionId);
-    socket.emit('dados-iniciais', dadosIniciais);
+    //const dadosIniciais = await obterDadosIniciaisDoBanco(institutionId);
+    //socket.emit('dados-iniciais', dadosIniciais);
+
+    socket.emit('dados-iniciais', {
+      ok: true,
+      message: 'socket conectado'
+    });
 
     socket.on('heartbeat', async () => {
       try {

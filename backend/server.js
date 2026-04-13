@@ -12,7 +12,8 @@ const prisma = new PrismaClient();
 const app = express();
 const server = http.createServer(app);
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+const PORT = process.env.PORT || 3000;
 
 app.use(cors({
   origin: [FRONTEND_URL, 'http://localhost:5173'],
@@ -27,8 +28,6 @@ const io = new Server(server, {
     credentials: true
   }
 });
-
-const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
   res.json({

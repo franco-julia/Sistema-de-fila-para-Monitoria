@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Versa Monitoria | Aluno</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="index.css">
 </head>
@@ -587,8 +587,8 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        rating: notaGlobal,
-                        comment: comentario
+                        nota: notaGlobal,
+                        comentario: comentario
                     })
                 });
 

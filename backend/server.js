@@ -13,7 +13,7 @@ const prisma = new PrismaClient();
 const app = express();
 const server = http.createServer(app);
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const publicPath = path.join(__dirname, 'public');
 
 app.use(cors({

@@ -5,7 +5,6 @@ const prisma = new PrismaClient();
 
 const FILE_PATH = './01_SUMÁRIO_6V_UNIFICADO.xlsx';
 
-// Ex.: A01, B12, C03
 const MODULE_CODE_REGEX = /^[A-Z]\d{2}$/i;
 
 function normalizeText(value) {
@@ -128,7 +127,6 @@ function parsePortugueseSheet(sheetName, sheet) {
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r].map(normalizeText);
 
-    // Detecta cabeçalhos "Frente A", "Frente B", etc.
     for (let c = 0; c < row.length; c++) {
       if (isFrontLabel(row[c])) {
         fronts[c] = row[c];

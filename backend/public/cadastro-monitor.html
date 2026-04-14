@@ -1,0 +1,142 @@
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Versa | Cadastrar Monitor</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="cadastro-monitor.css">
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <h2>Gestão de Monitores</h2>
+            <p>Cadastre novos acessos para o sistema de filas.</p>
+        </div>
+
+        <div class="form-group">
+            <label for="reg-nome">Nome Completo</label>
+            <input type="text" id="reg-nome" placeholder="Nome do monitor">
+        </div>
+
+        <div style="display: flex; gap: 15px;">
+            <div class="form-group" style="flex: 1;">
+                <label for="reg-user">Usuário (Login)</label>
+                <input type="text" id="reg-user" placeholder="Ex: joao_mat">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="reg-pass">Senha</label>
+                <input type="password" id="reg-pass" placeholder="****">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="reg-mat">Matérias</label>
+            <select id="reg-mat" multiple>
+                <option value="Matemática">Matemática</option>
+                <option value="Física">Física</option>
+                <option value="Química">Química</option>
+                <option value="Biologia">Biologia</option>
+            </select>
+            <small class="hint-select">Segure Ctrl (ou Cmd no Mac) para selecionar mais de uma matéria.</small>
+        </div>
+
+        <button class="btn-submit" onclick="cadastrar()">SALVAR MONITOR</button>
+        <a href="/coordenacao.html" class="btn-back">← Voltar para a Coordenação</a>
+
+        <div class="monitor-list">
+            <h3>Monitores Cadastrados</h3>
+            <div id="lista-monitores">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const institutionId = params.get('institution') || localStorage.getItem('institution_id') || null;
+        const monitorId = params.get('monitor') || localStorage.getItem('monitor_id') || null;
+        const monitoriaId = params.get('monitoria') || localStorage.getItem('monitoria_id') || null;
+        const role = localStorage.getItem('user_role') || 'MONITOR';
+        const API_BASE = window.location.origin;
+
+        const socket = io(API_BASE, {
+            transports: ['websocket'],
+            withCredentials: true,
+            auth: {
+                institutionId,
+                userId: monitorId,
+                role,
+                monitoriaId
+            }
+        });
+
+        async function cadastrar() {
+            const materiasSelecionadas = Array.from(
+                document.getElementById('reg-mat').selectedOptions
+            ).map(option => option.value);
+
+            const nome = document.getElementById('reg-nome').value.trim();
+            const usuario = document.getElementById('reg-user').value.trim();
+            const senha = document.getElementById('reg-pass').value.trim();
+
+            if (!nome || !usuario || !senha) {
+                return alert("Preencha nome, login e senha.");
+            }
+
+            if (materiasSelecionadas.length === 0) {
+                return alert("Selecione pelo menos uma matéria.");
+            }
+
+            if (!institutionId) {
+                return alert("institutionId não encontrado.");
+            }
+
+            try {
+                const resp = await fetch(`${API_BASE}/monitors`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        institutionId,
+                        nome,
+                        usuario,
+                        senha,
+                        materias: materiasSelecionadas
+                    })
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok || !data.ok) {
+                    throw new Error(data.error || 'Erro ao cadastrar monitor.');
+                }
+
+                document.getElementById('reg-nome').value = "";
+                document.getElementById('reg-user').value = "";
+                document.getElementById('reg-pass').value = "";
+                Array.from(document.getElementById('reg-mat').options).forEach(o => o.selected = false);
+
+                alert(`Monitor ${nome} cadastrado com sucesso.`);
+                socket.emit('fila:atualizar');
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        socket.on('atualizarGeral', (data) => {
+            const container = document.getElementById('lista-monitores');
+            container.innerHTML = data.monitores.map(m => `
+                <div class="monitor-item">
+                    <div>
+                        <b>${m.nome}</b><br>
+                        <small style="color: #94a3b8">${m.horarios}</small>
+                    </div>
+                    <span>${Array.isArray(m.materia) ? m.materia.join(' • ') : m.materia}</span>
+                </div>
+            `).join('');
+        });
+    </script>
+</body>
+</html>

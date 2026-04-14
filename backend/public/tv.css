@@ -1,0 +1,148 @@
+:root {
+    --bg: #f1f5f8;
+    --card: #2da9a4;
+    --accent: #6035a9;
+    --text-main: #ffffff;
+    --text-dim: #7886ac;
+    --border: #2da9a4;
+    --pausa: #f8cc2d;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg);
+    color: var(--text-main);
+    display: flex;
+    justify-content: center; 
+    flex-direction: column;
+    min-height: 100vh;
+    margin: 0;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 40px;
+    border-bottom: 2px solid var(--card);
+    margin-bottom: 2rem;
+}
+
+.header h1 { 
+    margin: 0;
+    color: var(--accent);
+    font-size: 3rem;
+    font-weight: 800;
+}
+.clock { font-size: 2.5rem; font-weight: 700; color:var(--accent); }
+
+.tv-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 30px;
+    padding: 40px;
+    flex-grow: 1;
+}
+
+.materia-card {
+    background: var(--card);
+    border-radius: 5rem;
+    padding: 25px 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border: 2px solid transparent;
+    max-height: 350px;
+    transition: all 0.5s ease;
+}
+
+.chamando {
+    border-color: var(--accent);
+    box-shadow: 0 0 50px rgba(34, 197, 94, 0.2);
+    animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+.monitor-tag {
+    display: block;
+    font-size: 2rem;
+    color: #6035a9;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 2px;
+    letter-spacing: 1px;
+}
+
+.materia-nome-tv {
+    font-size: 1.4rem;
+    color: #ffffff;
+    font-weight: 800;
+    margin-bottom: 20px;
+    line-height: 1.1;
+}
+
+.aluno-atual-box {
+    background: var(--card);
+    padding: 15px;
+    border-radius: 12px;
+    margin: 10px 0;
+}
+
+.aluno-atual-nome {
+    font-size: 2.5rem;
+    color: #ffffff;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.proximo-aluno {
+    font-size: 1.8rem;
+    color: #ffffff;
+    margin-top: 20px;
+    border-top: 1px solid var(--accent);
+    padding-top: 20px;
+}
+
+.pausa-label {
+    color: var(--pausa);
+    font-size: 2rem;
+}
+
+.aluno-linha-tv {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.timer-tv {
+    min-width: 110px;
+    text-align: center;
+    background: rgba(96,53,169,0.16);
+    border: 1px solid rgba(96,53,169,0.4);
+    color: #6035a9;
+    border-radius: 999px;
+    padding: 10px 14px;
+    font-size: 1.4rem;
+    font-weight: 800;
+}
+
+.timer-tv.destaque {
+    background: rgba(248,204,45,0.2);
+    border-color: var(--pausa);
+    color: var(--pausa);
+}
+
+.status-tv {
+    display: block;
+    color: #6035a9;
+    font-size: 0.95rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    margin: 6px 0 10px 0;
+}

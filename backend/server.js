@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const path = require('path');
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -12,62 +13,30 @@ const prisma = new PrismaClient();
 const app = express();
 const server = http.createServer(app);
 
-const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
-
-const allowedOrigins = [
-  FRONTEND_URL,
-  'http://localhost:5173'
-];
+const publicPath = path.join(__dirname, 'public');
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-      return callback(null, true);
-    }
-    return callback(new Error(`Origem não permitida: ${origin}`));
-  },
+  origin: true,
   credentials: true
 }));
 
 app.use(express.json());
+app.use(express.static(publicPath));
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-        return callback(null, true);
-      }
-      return callback(new Error(`Origem não permitida no socket: ${origin}`));
-    },
-    credentials: true,
-    methods: ['GET', 'POST']
-  },
-  transports: ['websocket', 'polling']
-});
-
-io.engine.on('connection_error', (err) => {
-  console.error('ENGINE SOCKET ERROR');
-  console.error('code:', err.code);
-  console.error('message:', err.message);
-  console.error('context:', err.context);
+    origin: true,
+    credentials: true
+  }
 });
 
 app.get('/', (req, res) => {
-  res.json({
-    ok: true,
-    message: 'Backend da fila está online.'
-  });
+  res.sendFile(path.join(publicPath, 'index.html'));
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('UNHANDLED REJECTION:', reason);
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
 });
 
 function gerarTokenMonitor(monitor) {

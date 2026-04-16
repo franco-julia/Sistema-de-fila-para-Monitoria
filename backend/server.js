@@ -408,7 +408,7 @@ setInterval(() => {
   verificarTempos().catch((err) => {
     console.error('Erro em verificarTempos:', err);
   });
-}, 60 * 1000);
+}, 5 * 1000);
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
@@ -699,7 +699,7 @@ app.post('/queue/join', async (req, res) => {
       monitoriaId,
       studentId: studentExternalId,
       subjectId,
-      moduleId
+      moduleIds = []
     } = req.body || {};
 
     if (!institutionId || !monitoriaId || !studentExternalId) {
@@ -1116,9 +1116,11 @@ app.post('/queue/:entryId/finish', async (req, res) => {
 app.post('/queue/:entryId/feedback', async (req, res) => {
   try {
     const { entryId } = req.params;
-    const { nota, comentario } = req.body || {};
 
-    if (!nota || nota < 1 || nota > 5) {
+    const notaRecebida = req.body?.nota ?? req.body?.rating;
+    const comentarioRecebido = req.body?.comentario ?? req.body?.comment ?? null;
+
+    if (!notaRecebida || Number(notaRecebida) < 1 || Number(notaRecebida) > 5) {
       return res.status(400).json({
         success: false,
         message: 'Informe uma nota válida de 1 a 5.'
@@ -1141,8 +1143,8 @@ app.post('/queue/:entryId/feedback', async (req, res) => {
     const atualizado = await prisma.queueEntry.update({
       where: { id: entryId },
       data: {
-        rating: Number(nota),
-        feedbackComment: comentario || null,
+        rating: Number(notaRecebida),
+        feedbackComment: comentarioRecebido,
         feedbackAt
       }
     });
@@ -1150,8 +1152,8 @@ app.post('/queue/:entryId/feedback', async (req, res) => {
     await prisma.attendanceHistory.updateMany({
       where: { queueEntryId: entryId },
       data: {
-        feedbackRating: Number(nota),
-        feedbackText: comentario || null
+        feedbackRating: Number(notaRecebida),
+        feedbackText: comentarioRecebido
       }
     });
 
@@ -1512,13 +1514,8 @@ io.on('connection', async (socket) => {
 
     socket.join(`institution:${institutionId}`);
 
-    //const dadosIniciais = await obterDadosIniciaisDoBanco(institutionId);
-    //socket.emit('dados-iniciais', dadosIniciais);
-
-    socket.emit('dados-iniciais', {
-      ok: true,
-      message: 'socket conectado'
-    });
+    const dadosIniciais = await obterDadosIniciaisDoBanco(institutionId);
+    socket.emit('dados-iniciais', dadosIniciais);
 
     socket.on('heartbeat', async () => {
       try {

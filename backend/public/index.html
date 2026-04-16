@@ -379,7 +379,7 @@
                         monitoriaId: selectedMonitor.monitoriaId,
                         studentId,
                         subjectId: selectedSubject?.id || null,
-                        moduleId: selectedModules?.[0]?.id || null
+                        moduleIds: selectedModules.map(mod => mod.id)
                     })
                 });
 
@@ -589,8 +589,8 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        rating: notaGlobal,
-                        comment: comentario
+                        nota: notaGlobal,
+                        comment
                     })
                 });
 

@@ -387,14 +387,18 @@
                 dados[monitor.id] = {
                     id: monitor.id,
                     nome: monitor.name || 'Monitor',
-                    materias: [tituloMonitoria],
+                    materias: Array.isArray(monitor?.subjects)
+                        ? monitor.subjects.map(s => s?.name).filter(Boolean)
+                        : [tituloMonitoria],
                     status: monitor.isOnline ? 'disponível' : 'offline',
                     fila: filaEspera.map(item => ({
                         id: item.id,
                         nome: item?.student?.name || 'Aluno',
                         telefone: item?.student?.id || '',
                         materia: item?.monitoria?.title || tituloMonitoria,
-                        modulos: [],
+                        modulos: item?.module
+                            ? [[item.module.code, item.module.title].filter(Boolean).join(' - ')]
+                            : [],
                         inicioFila: item?.createdAt ? new Date(item.createdAt).getTime() : null
                     })),
                     atual: atualBruto ? {

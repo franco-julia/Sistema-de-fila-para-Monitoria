@@ -180,14 +180,17 @@
         }
 
         function normalizarModulos(item) {
-            const parts = [];
-
-            if (item?.module?.code || item?.module?.title) {
-                const rotulo = [item.module.code, item.module.title].filter(Boolean).join(' - ');
-                parts.push(rotulo);
+            if (Array.isArray(item?.modules) && item.modules.length) {
+                return item.modules.map(mod =>
+                    [mod.code, mod.title].filter(Boolean).join(' - ')
+                );
             }
 
-            return parts;
+            if (item?.module?.code || item?.module?.title) {
+                return [[item.module.code, item.module.title].filter(Boolean).join(' - ')];
+            }
+
+            return [];
         }
 
         function montarHistorico(base) {
@@ -214,18 +217,27 @@
                 const filaMonitoria = monitoriaAtualId
                     ? fila.filter(item => (item.monitoria?.id || item.monitoriaId) === monitoriaAtualId)
                     : [];
+
                 const atualBruto = filaMonitoria.find(item => item.status === 'IN_SERVICE')
                     || filaMonitoria.find(item => item.status === 'CALLED')
                     || null;
+
                 const filaEspera = filaMonitoria.filter(item => item.status === 'WAITING');
+
+                const materiasMonitor = Array.isArray(monitor?.subjects)
+                    ? monitor.subjects.map(s => s?.name).filter(Boolean)
+                    : [];
+
                 const tituloMonitoria = filaMonitoria.find(item => item?.monitoria?.title)?.monitoria?.title
                     || monitor?.sessaoAtiva?.monitoriaTitle
+                    || materiasMonitor[0]
                     || 'Monitoria';
 
                 dados[monitor.id] = {
                     id: monitor.id,
                     nome: monitor.name || 'Monitor',
-                    materias: [tituloMonitoria],
+                    materias: materiasMonitor.length ? materiasMonitor : [tituloMonitoria],
+                    subjects: Array.isArray(monitor?.subjects) ? monitor.subjects : [],
                     status: monitor.isOnline ? 'disponível' : 'offline',
                     fila: filaEspera.map(item => ({
                         id: item.id,
@@ -253,9 +265,9 @@
 
             return {
                 dados,
-                historico: montarHistorico(base),
-                serverTime: Date.now(),
-                config: {
+                historico: Array.isArray(base?.historico) ? base.historico : [],
+                serverTime: typeof base?.serverTime === 'number' ? base.serverTime : Date.now(),
+                config: base?.config || {
                     tempoChegadaMs: 2 * 60 * 1000,
                     tempoAtendimentoMs: 15 * 60 * 1000,
                     tempoExtraMs: 5 * 60 * 1000
@@ -377,8 +389,27 @@
             }
         }
 
-        function adicionarMaisCinco() {
-            alert('O backend ainda não possui rota para +5 min.');
+        async function adicionarMaisCinco() {
+            const atual = ultimoEstadoGeral?.dados?.[monitorLogado]?.atual;
+            if (!atual?.id) return;
+
+            try {
+                const resp = await fetch(`${API_BASE}/queue/${atual.id}/add-extra-time`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok || !data.success) {
+                    return alert(data.message || 'Erro ao adicionar +5 min.');
+                }
+
+                if (socket) socket.emit('fila:atualizar');
+            } catch (error) {
+                console.error(error);
+                alert(error.message || 'Erro ao adicionar +5 min.');
+            }
         }
 
         function alternarPausa() {

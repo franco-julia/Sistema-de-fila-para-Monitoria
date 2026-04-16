@@ -112,8 +112,9 @@ model Module {
 
   subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
 
-  topics       Topic[]
-  queueEntries QueueEntry[]
+  topics          Topic[]
+  queueEntries    QueueEntry[]
+  queueEntryLinks QueueEntryModule[]
 
   @@unique([subjectId, code], name: "subjectId_code")
   @@index([subjectId])
@@ -174,6 +175,8 @@ model QueueEntry {
   subject     Subject?    @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   module      Module?     @relation(fields: [moduleId], references: [id], onDelete: SetNull)
 
+  selectedModules QueueEntryModule[]
+
   @@index([institutionId])
   @@index([monitoriaId])
   @@index([studentId])
@@ -182,6 +185,20 @@ model QueueEntry {
   @@index([status])
   @@index([institutionId, status])
   @@index([institutionId, monitoriaId, status])
+}
+
+model QueueEntryModule {
+  id           String   @id @default(cuid())
+  queueEntryId String
+  moduleId     String
+  createdAt    DateTime @default(now())
+
+  queueEntry QueueEntry @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
+  module     Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([queueEntryId, moduleId])
+  @@index([queueEntryId])
+  @@index([moduleId])
 }
 
 model MonitorSession {

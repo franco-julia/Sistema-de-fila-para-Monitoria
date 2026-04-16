@@ -1285,8 +1285,7 @@ app.post('/queue/:entryId/feedback', async (req, res) => {
     await prisma.attendanceHistory.updateMany({
       where: { queueEntryId: entryId },
       data: {
-        feedbackRating: Number(notaRecebida),
-        feedbackText: comentarioRecebido
+        note: comentarioRecebido
       }
     });
 
@@ -1302,7 +1301,7 @@ app.post('/queue/:entryId/feedback', async (req, res) => {
     console.error('Erro em /queue/:entryId/feedback:', error);
     return res.status(500).json({
       success: false,
-      message: 'Erro ao enviar feedback.'
+      message: error.message || 'Erro ao enviar feedback.'
     });
   }
 });
@@ -1501,7 +1500,7 @@ app.get('/coordination/history', async (req, res) => {
       materia: item.subjectName || '---',
       modulos: item.moduleNames || [],
       atendidoPor: item.monitor?.name || '---',
-      nota: item.feedbackRating || null,
+      nota: null,
       inicio: item.startedAt || item.calledAt || item.enteredQueueAt || null,
       fim: item.finishedAt || null,
       duracao: item.serviceSeconds != null

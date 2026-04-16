@@ -73,7 +73,9 @@
                     id: monitor.id,
                     nome: monitor.name || 'Monitor',
                     materias: [tituloMonitoria],
-                    status: monitor.isOnline ? 'disponível' : 'offline',
+                    status: monitor.isOnline
+                        ? (monitor.isPaused ? 'em pausa' : 'disponível')
+                        : 'offline',
                     fila: filaEspera.map(item => ({
                         id: item.id,
                         nome: item?.student?.name || 'Aluno',

@@ -70,26 +70,26 @@ async function buscarMonitoresDoBanco(institutionId) {
     throw new Error('institutionId não informado em buscarMonitoresDoBanco');
   }
 
-const monitores = await prisma.user.findMany({
-  where: {
-    institutionId,
-    role: 'MONITOR'
-  },
-  include: {
-    monitorSessions: {
-      where: { isOnline: true },
-      orderBy: { startedAt: 'desc' }
+  const monitores = await prisma.user.findMany({
+    where: {
+      institutionId,
+      role: 'MONITOR'
     },
-    monitorias: {
-      include: {
-        subject: true
+    include: {
+      monitorSessions: {
+        where: { isOnline: true },
+        orderBy: { startedAt: 'desc' }
+      },
+      monitorias: {
+        include: {
+          subject: true
+        }
       }
+    },
+    orderBy: {
+      name: 'asc'
     }
-  },
-  orderBy: {
-    name: 'asc'
-  }
-});
+  });
 
   return monitores.map((monitor) => {
     const sessaoAtiva = monitor.monitorSessions[0] || null;
@@ -101,6 +101,7 @@ const monitores = await prisma.user.findMany({
       role: monitor.role,
       institutionId: monitor.institutionId,
       isOnline: !!sessaoAtiva,
+      isPaused: monitor.active === false,
       monitorias: monitor.monitorias,
       subjects: monitor.monitorias.map(m => m.subject).filter(Boolean),
       sessaoAtiva: sessaoAtiva
@@ -1058,6 +1059,46 @@ app.post('/queue/:monitoriaId/next', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Erro ao chamar próximo.'
+    });
+  }
+});
+
+app.post('/monitor/:monitorId/pause', async (req, res) => {
+  try {
+    const { monitorId } = req.params;
+    const { paused, institutionId } = req.body || {};
+
+    const monitor = await prisma.user.findUnique({
+      where: { id: monitorId }
+    });
+
+    if (!monitor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Monitor não encontrado.'
+      });
+    }
+
+    await prisma.user.update({
+      where: { id: monitorId },
+      data: {
+        active: paused ? false : true
+      }
+    });
+
+    if (institutionId) {
+      await emitirEstadoInstituicao(institutionId);
+    }
+
+    return res.json({
+      success: true,
+      paused: !!paused
+    });
+  } catch (error) {
+    console.error('Erro em /monitor/:monitorId/pause:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao atualizar status da monitoria.'
     });
   }
 });

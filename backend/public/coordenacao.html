@@ -390,7 +390,9 @@
                     materias: Array.isArray(monitor?.subjects)
                         ? monitor.subjects.map(s => s?.name).filter(Boolean)
                         : [tituloMonitoria],
-                    status: monitor.isOnline ? 'disponível' : 'offline',
+                    status: monitor.isOnline
+                        ? (monitor.isPaused ? 'em pausa' : 'disponível')
+                        : 'offline',
                     fila: filaEspera.map(item => ({
                         id: item.id,
                         nome: item?.student?.name || 'Aluno',

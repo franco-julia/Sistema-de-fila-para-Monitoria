@@ -523,11 +523,18 @@
                     (item) => item?.monitoria?.id === monitoriaId && item.status === 'IN_SERVICE'
                 );
 
-                const statusClasse = emAtendimento ? 'dot-atendimento pulse-dot' : 'dot-online';
-                const statusTexto = emAtendimento ? 'Atendimento em andamento' : 'Disponível';
+                const emPausa = monitor.isPaused === true;
+
+                const statusClasse = emPausa
+                    ? 'dot-offline'
+                    : (emAtendimento ? 'dot-atendimento pulse-dot' : 'dot-online');
+
+                const statusTexto = emPausa
+                    ? 'Monitoria em pausa'
+                    : (emAtendimento ? 'Atendimento em andamento' : 'Disponível');
 
                 return `
-                    <div class="card" onclick="abrirRegistro('${monitoriaId}', '${String(monitor.name || 'Monitor').replace(/'/g, "\\'")}')">
+                    <div class="card ${emPausa ? 'card-pausado' : ''}" ${emPausa ? '' : `onclick="abrirRegistro('${monitoriaId}', '${String(monitor.name || 'Monitor').replace(/'/g, "\\'")}')"`}>
                         <div class="status-top">
                             <span class="status-dot ${statusClasse}"></span>
                             <span class="status-tooltip">${statusTexto}</span>
@@ -540,7 +547,7 @@
 
                         <div class="footer-content">
                             <span class="fila-texto">Na fila: ${qtdFila}</span>
-                            <span class="tempo-texto">Clique para entrar</span>
+                            <span class="tempo-texto">${emPausa ? 'Monitoria pausada' : 'Clique para entrar'}</span>
                         </div>
                     </div>
                 `;

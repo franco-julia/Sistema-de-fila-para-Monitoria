@@ -242,7 +242,9 @@
                     nome: monitor.name || 'Monitor',
                     materias: materiasMonitor.length ? materiasMonitor : [tituloMonitoria],
                     subjects: Array.isArray(monitor?.subjects) ? monitor.subjects : [],
-                    status: monitor.isOnline ? 'disponível' : 'offline',
+                    status: monitor.isOnline
+                        ? (monitor.isPaused ? 'em pausa' : 'disponível')
+                        : 'offline',
                     fila: filaEspera.map(item => ({
                         id: item.id,
                         nome: item?.student?.name || item?.student?.id || 'Aluno',
@@ -341,6 +343,10 @@
         }
 
         async function chamarProximo() {
+            if (statusLocal === 'em pausa') {
+                return alert('A monitoria está em pausa.');
+            }
+            
             if (!monitoriaId || !institutionId) return alert('Monitoria não identificada.');
 
             const meuMonitor = ultimoEstadoGeral?.dados?.[monitorLogado];
@@ -416,10 +422,39 @@
             }
         }
 
-        function alternarPausa() {
-            statusLocal = statusLocal === 'em pausa' ? 'disponível' : 'em pausa';
-            atualizarBotaoStatus(statusLocal);
-            renderizarEstadoMonitor();
+        async function alternarPausa() {
+            if (!monitorLogado || !institutionId) {
+                return alert('Monitor não identificado.');
+            }
+
+            const novoStatusPausa = statusLocal !== 'em pausa';
+
+            try {
+                const resp = await fetch(`${API_BASE}/monitor/${monitorLogado}/pause`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        paused: novoStatusPausa,
+                        institutionId
+                    })
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.message || 'Erro ao atualizar pausa.');
+                }
+
+                statusLocal = novoStatusPausa ? 'em pausa' : 'disponível';
+                atualizarBotaoStatus(statusLocal);
+
+                if (socket) socket.emit('fila:atualizar');
+            } catch (error) {
+                console.error(error);
+                alert(error.message || 'Erro ao atualizar pausa.');
+            }
         }
 
         function preencherFiltroMaterias() {

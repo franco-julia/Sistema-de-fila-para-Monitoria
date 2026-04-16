@@ -1067,6 +1067,38 @@ app.post('/queue/:entryId/start-service', async (req, res) => {
   }
 });
 
+app.post('/queue/:entryId/add-extra-time', async (req, res) => {
+  try {
+    const { entryId } = req.params;
+
+    const entry = await prisma.queueEntry.findUnique({
+      where: { id: entryId }
+    });
+
+    if (!entry || entry.status !== 'IN_SERVICE') {
+      return res.status(404).json({
+        success: false,
+        message: 'Atendimento não encontrado.'
+      });
+    }
+
+    await prisma.attendanceHistory.updateMany({
+      where: { queueEntryId: entryId },
+      data: {
+        note: 'Atendimento recebeu +5 minutos.'
+      }
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Erro em /queue/:entryId/add-extra-time:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao adicionar tempo extra.'
+    });
+  }
+});
+
 app.post('/queue/:entryId/finish', async (req, res) => {
   try {
     const { entryId } = req.params;

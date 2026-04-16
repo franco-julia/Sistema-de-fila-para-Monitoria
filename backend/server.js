@@ -754,26 +754,42 @@ app.post('/queue/join', async (req, res) => {
       }
     }
 
-    let moduleRecord = null;
-    if (moduleId) {
-      moduleRecord = await prisma.module.findUnique({
-        where: { id: moduleId }
+    const moduleIdsNormalizados = Array.isArray(moduleIds)
+      ? [...new Set(moduleIds.map(id => String(id).trim()).filter(Boolean))]
+      : [];
+
+    let modules = [];
+
+    if (moduleIdsNormalizados.length) {
+      modules = await prisma.module.findMany({
+        where: {
+          id: { in: moduleIdsNormalizados }
+        },
+        select: {
+          id: true,
+          code: true,
+          title: true,
+          subjectId: true,
+          front: true
+        }
       });
 
-      if (!moduleRecord) {
+      if (modules.length !== moduleIdsNormalizados.length) {
         return res.status(400).json({
           success: false,
-          message: 'Módulo inválido.'
+          message: 'Um ou mais módulos são inválidos.'
         });
       }
 
-      if (subjectId && moduleRecord.subjectId !== subjectId) {
+      if (subjectId && modules.some(mod => mod.subjectId !== subjectId)) {
         return res.status(400).json({
           success: false,
-          message: 'O módulo não pertence à matéria selecionada.'
+          message: 'Um ou mais módulos não pertencem à matéria selecionada.'
         });
       }
     }
+
+    const firstModuleId = modules.length ? modules[0].id : null;
 
     const usernameAluno = `student_${studentExternalId}`;
     const emailAluno = `${studentExternalId}@sem-email.local`;
@@ -832,7 +848,10 @@ app.post('/queue/join', async (req, res) => {
       monitoriaId,
       studentExternalId,
       userIdReal: student.id,
-      studentInstitutionId: student.institutionId
+      studentInstitutionId: student.institutionId,
+      subjectId: subjectId || null,
+      moduleIdsRecebidos: moduleIdsNormalizados,
+      firstModuleId
     });
 
     const entry = await prisma.queueEntry.create({
@@ -841,7 +860,7 @@ app.post('/queue/join', async (req, res) => {
         monitoriaId,
         studentId: student.id,
         subjectId: subjectId || null,
-        moduleId: moduleId || null,
+        moduleId: firstModuleId,
         status: QueueStatus.WAITING
       },
       include: {
@@ -867,7 +886,7 @@ app.post('/queue/join', async (req, res) => {
         studentName: entry.student?.name || 'Aluno',
         studentPhone: null,
         subjectName: entry.subject?.name || null,
-        moduleNames: entry.module ? [entry.module.title] : [],
+        moduleNames: modules.map(mod => [mod.code, mod.title].filter(Boolean).join(' - ')),
         statusFinal: 'WAITING',
         enteredQueueAt: entry.createdAt,
         institution: {
@@ -881,10 +900,13 @@ app.post('/queue/join', async (req, res) => {
 
     await emitirEstadoInstituicao(institutionIdReal);
 
-    res.json({ success: true, entry });
+    return res.json({
+      success: true,
+      entry
+    });
   } catch (error) {
     console.error('Erro em /queue/join:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message || 'Erro ao entrar na fila.'
     });

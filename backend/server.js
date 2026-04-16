@@ -1217,7 +1217,7 @@ app.post('/queue/:entryId/cancel', async (req, res) => {
     const updated = await prisma.queueEntry.update({
       where: { id: entryId },
       data: {
-        status: 'CANCELED',
+        status: 'CANCELLED',
         finishedAt: new Date()
       }
     });
@@ -1225,7 +1225,7 @@ app.post('/queue/:entryId/cancel', async (req, res) => {
     await prisma.attendanceHistory.updateMany({
       where: { queueEntryId: entryId },
       data: {
-        statusFinal: 'CANCELED',
+        statusFinal: 'CANCELLED',
         finishedAt: new Date(),
         note: 'Aluno saiu da fila.'
       }
@@ -1422,7 +1422,7 @@ app.get('/admin/history/summary', async (req, res) => {
 
     const total = registros.length;
     const finalizados = registros.filter(r => r.statusFinal === 'FINISHED').length;
-    const cancelados = registros.filter(r => r.statusFinal === 'CANCELED').length;
+    const cancelados = registros.filter(r => r.statusFinal === 'CANCELLED').length;
 
     const waits = registros.map(r => r.waitSeconds).filter(v => typeof v === 'number');
     const services = registros.map(r => r.serviceSeconds).filter(v => typeof v === 'number');

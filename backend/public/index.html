@@ -390,6 +390,7 @@
                 }
 
                 selectedEntryId = data.entry?.id || null;
+                localStorage.setItem('selected_modules_labels', JSON.stringify(selectedModules.map(mod => mod.label)));
                 document.getElementById('overlay-registro').style.display = 'none';
                 document.getElementById('overlay-espera').style.display = 'flex';
                 document.getElementById('view-status-msg').innerText = 'Você entrou na fila.';
@@ -437,9 +438,25 @@
             selectedEntryId = minhaEntrada.id;
             document.getElementById('view-monitor-wait').innerText = selectedMonitor.nome || 'Monitor';
             document.getElementById('view-materia-wait').innerText = minhaEntrada.subject?.name || selectedSubject?.name || 'Disciplina';
-            document.getElementById('view-modulos-list').innerHTML = minhaEntrada.module
-                ? `<span class="tag-mod">${minhaEntrada.module.code || ''} - ${minhaEntrada.module.title || ''}</span>`
-                : 'Nenhum módulo selecionado.';
+            
+            const modulosSalvos = (() => {
+                try {
+                    return JSON.parse(localStorage.getItem('selected_modules_labels') || '[]');
+                } catch {
+                    return [];
+                }
+            })();
+
+            if (Array.isArray(modulosSalvos) && modulosSalvos.length) {
+                document.getElementById('view-modulos-list').innerHTML = modulosSalvos
+                    .map(label => `<span class="tag-mod">${label}</span>`)
+                    .join('');
+            } else if (minhaEntrada.module) {
+                document.getElementById('view-modulos-list').innerHTML =
+                    `<span class="tag-mod">${[minhaEntrada.module.code, minhaEntrada.module.title].filter(Boolean).join(' - ')}</span>`;
+            } else {
+                document.getElementById('view-modulos-list').innerHTML = 'Nenhum módulo selecionado.';
+            }
 
             if (minhaEntrada.status === 'WAITING') {
                 const somenteEsperando = filaMonitor.filter((item) => item.status === 'WAITING');
@@ -560,7 +577,38 @@
                 return;
             }
 
-            alert('O backend atual ainda não possui rota para cancelar a solicitação.');
+            try {
+                const resp = await fetch(`${API_BASE}/queue/${selectedEntryId}/cancel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.message || 'Erro ao sair da fila.');
+                }
+
+                document.getElementById('overlay-espera').style.display = 'none';
+                document.getElementById('view-posicao').innerText = '--';
+                document.getElementById('view-status-msg').innerText = '';
+                document.getElementById('view-tempo-espera').innerText = '00:00';
+                document.getElementById('view-chegada-countdown').innerText = '00:00';
+                document.getElementById('view-atendimento-tempo').innerText = '00:00';
+                document.getElementById('view-modulos-list').innerHTML = 'Nenhum módulo selecionado.';
+
+                selectedEntryId = null;
+                feedbackEntryId = null;
+                selectedModules = [];
+                localStorage.removeItem('selected_modules_labels');
+
+                if (socket) socket.emit('fila:atualizar');
+            } catch (error) {
+                console.error(error);
+                alert(error.message || 'Erro ao sair da fila.');
+            }
         }
 
         function selecionarNota(valor, elemento) {
@@ -590,7 +638,7 @@
                     },
                     body: JSON.stringify({
                         nota: notaGlobal,
-                        comment
+                        comentario: comentario
                     })
                 });
 
@@ -605,15 +653,15 @@
                 document.querySelectorAll('.btn-nota').forEach((btn) => btn.classList.remove('selected'));
                 notaGlobal = 0;
                 selectedEntryId = null;
+                feedbackEntryId = null;
+                localStorage.removeItem('selected_modules_labels');
 
                 alert('Avaliação enviada com sucesso.');
                 location.reload();
             } catch (error) {
                 console.error(error);
-                alert(error.message);
+                alert(error.message || 'Erro ao enviar avaliação.');
             }
-
-            feedbackEntryId = null;
         }
 
         socket.on('dados-iniciais', (data) => {

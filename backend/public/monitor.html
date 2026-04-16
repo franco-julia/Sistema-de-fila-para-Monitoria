@@ -180,6 +180,10 @@
         }
 
         function normalizarModulos(item) {
+            if (Array.isArray(item?.moduleNames) && item.moduleNames.length) {
+                return item.moduleNames;
+            }
+
             if (Array.isArray(item?.modules) && item.modules.length) {
                 return item.modules.map(mod =>
                     [mod.code, mod.title].filter(Boolean).join(' - ')

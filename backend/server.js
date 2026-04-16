@@ -123,7 +123,7 @@ async function buscarFilaDoBanco(institutionId) {
     throw new Error('institutionId não informado em buscarFilaDoBanco');
   }
 
-  return prisma.queueEntry.findMany({
+  const fila = await prisma.queueEntry.findMany({
     where: {
       institutionId,
       status: {
@@ -163,6 +163,31 @@ async function buscarFilaDoBanco(institutionId) {
       createdAt: 'asc'
     }
   });
+
+  const queueIds = fila.map(item => item.id);
+
+  const historicos = queueIds.length
+    ? await prisma.attendanceHistory.findMany({
+        where: {
+          queueEntryId: { in: queueIds }
+        },
+        select: {
+          queueEntryId: true,
+          moduleNames: true
+        }
+      })
+    : [];
+
+  const historicoMap = new Map(
+    historicos.map(h => [h.queueEntryId, Array.isArray(h.moduleNames) ? h.moduleNames : []])
+  );
+
+  return fila.map(item => ({
+    ...item,
+    moduleNames: historicoMap.get(item.id) || (
+      item.module ? [[item.module.code, item.module.title].filter(Boolean).join(' - ')] : []
+    )
+  }));
 }
 
 async function obterDadosIniciaisDoBanco(institutionId) {
@@ -1164,6 +1189,60 @@ app.post('/queue/:entryId/finish', async (req, res) => {
   } catch (error) {
     console.error('Erro em /queue/:entryId/finish:', error);
     res.status(500).json({ success: false, message: 'Erro ao finalizar atendimento.' });
+  }
+});
+
+app.post('/queue/:entryId/cancel', async (req, res) => {
+  try {
+    const { entryId } = req.params;
+
+    const entry = await prisma.queueEntry.findUnique({
+      where: { id: entryId }
+    });
+
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        message: 'Solicitação não encontrada.'
+      });
+    }
+
+    if (![QueueStatus.WAITING, QueueStatus.CALLED].includes(entry.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Essa solicitação não pode mais ser cancelada.'
+      });
+    }
+
+    const updated = await prisma.queueEntry.update({
+      where: { id: entryId },
+      data: {
+        status: 'CANCELED',
+        finishedAt: new Date()
+      }
+    });
+
+    await prisma.attendanceHistory.updateMany({
+      where: { queueEntryId: entryId },
+      data: {
+        statusFinal: 'CANCELED',
+        finishedAt: new Date(),
+        note: 'Aluno saiu da fila.'
+      }
+    });
+
+    await emitirEstadoInstituicao(entry.institutionId);
+
+    return res.json({
+      success: true,
+      entry: updated
+    });
+  } catch (error) {
+    console.error('Erro em /queue/:entryId/cancel:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao cancelar solicitação.'
+    });
   }
 });
 
